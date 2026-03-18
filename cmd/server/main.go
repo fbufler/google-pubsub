@@ -47,6 +47,19 @@ func main() {
 	sub := handler.NewSubscriber(store)
 
 	mux := http.NewServeMux()
+
+	// --- HEALTH ENDPOINTS ---
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+	// ------------------------
+
 	mux.Handle(pubsubpbconnect.NewPublisherHandler(pub))
 	mux.Handle(pubsubpbconnect.NewSubscriberHandler(sub))
 
