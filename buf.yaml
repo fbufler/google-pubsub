@@ -1,0 +1,18 @@
+version: v2
+
+modules:
+  - path: proto
+    lint:
+      use:
+        - STANDARD
+      # Vendored Google API protos — we don't author them, skip linting.
+      ignore:
+        - proto/google/pubsub/v1
+    breaking:
+      use:
+        - FILE
+      ignore:
+        - proto/google/pubsub/v1
+
+deps:
+  - buf.build/googleapis/googleapis

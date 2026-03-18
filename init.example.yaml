@@ -1,0 +1,17 @@
+projects:
+  - id: my-project
+    topics:
+      - name: orders
+        message_retention_seconds: 86400  # 1 day
+        subscriptions:
+          - name: orders-processor
+            ack_deadline_seconds: 30
+          - name: orders-audit
+            ack_deadline_seconds: 60
+            retain_acked_messages: true
+
+      - name: events
+        subscriptions:
+          - name: events-consumer
+            ack_deadline_seconds: 10
+            filter: 'attributes.type = "important"'

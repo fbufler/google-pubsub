@@ -1,0 +1,22 @@
+# Binary output
+bin/
+
+# Go test cache and coverage
+*.test
+*.out
+coverage.html
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+
+# mise local overrides
+.mise.local.toml
