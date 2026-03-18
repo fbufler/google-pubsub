@@ -1,0 +1,111 @@
+name: Spec Update
+
+on:
+    schedule:
+        - cron: "0 6 * * *"
+    workflow_dispatch:
+
+jobs:
+    check-and-update:
+        name: Check pubsub spec for changes
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            pull-requests: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - uses: jdx/mise-action@v2
+              with:
+                  cache: true
+
+            - name: Fetch latest pubsub proto spec
+              run: task proto:update
+
+            - name: Check for proto changes
+              id: diff
+              run: |
+                  if git diff --quiet proto/; then
+                    echo "changed=false" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
+                    echo "### Proto diff" >> "$GITHUB_STEP_SUMMARY"
+                    git diff proto/ >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+            - name: Regenerate Go code
+              if: steps.diff.outputs.changed == 'true'
+              run: task proto:generate
+
+            - name: Integration tests — real emulator
+              if: steps.diff.outputs.changed == 'true'
+              run: task test:integration:official
+
+            - name: Build our Docker image
+              if: steps.diff.outputs.changed == 'true'
+              run: task docker:build
+
+            - name: Integration tests — our emulator
+              if: steps.diff.outputs.changed == 'true'
+              run: task test:integration:ours
+
+            - name: Commit and push to update branch
+              if: steps.diff.outputs.changed == 'true'
+              run: |
+                  git config user.name  "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  BRANCH="chore/spec-update-$(date +%Y-%m-%d)"
+                  git checkout -b "$BRANCH"
+                  git add proto/google/pubsub/v1/pubsub.proto \
+                          proto/google/pubsub/v1/schema.proto \
+                          gen/ buf.lock go.mod go.sum
+                  git commit -m "chore: update pubsub proto spec $(date +%Y-%m-%d)"
+                  git push origin "$BRANCH"
+                  echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+            - name: Compute next version
+              if: steps.diff.outputs.changed == 'true'
+              id: version
+              run: |
+                  LATEST=$(git tag --list 'v*' --sort=-version:refname | head -1)
+                  if [[ -z "$LATEST" ]]; then
+                    NEXT="v0.1.0"
+                  else
+                    IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST#v}"
+                    NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+                  fi
+                  echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+            - name: Create draft release
+              if: steps.diff.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  PROTO_DIFF=$(git diff HEAD~1 proto/)
+                  gh release create "${{ steps.version.outputs.next }}" \
+                    --draft \
+                    --title "pubsub spec update ${{ steps.version.outputs.next }}" \
+                    --target "$BRANCH" \
+                    --notes "## pubsub spec update
+
+                  The google/pubsub/v1 proto spec changed upstream. All integration tests pass against both emulators.
+
+                  **Branch:** \`$BRANCH\`
+
+                  @fbufler — please review and publish when ready.
+
+                  <details>
+                  <summary>Proto diff</summary>
+
+                  \`\`\`diff
+                  $PROTO_DIFF
+                  \`\`\`
+                  </details>"
+
+            - name: No changes detected
+              if: steps.diff.outputs.changed == 'false'
+              run: echo "pubsub spec is up to date — nothing to do."

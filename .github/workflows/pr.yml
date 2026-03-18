@@ -1,0 +1,39 @@
+name: PR
+
+on:
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+jobs:
+    lint-and-test:
+        name: Lint & Test
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: jdx/mise-action@v2
+              with:
+                  cache: true
+
+            - name: Proto lint
+              run: task proto:lint
+
+            - name: Go lint
+              run: task lint
+
+            - name: Build
+              run: task build
+
+            - name: Unit tests
+              run: task test:unit
+
+            - name: Integration tests — real emulator
+              run: task test:integration:official
+
+            - name: Build our Docker image
+              run: task docker:build
+
+            - name: Integration tests — our emulator
+              run: task test:integration:ours

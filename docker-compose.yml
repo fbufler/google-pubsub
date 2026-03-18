@@ -1,0 +1,44 @@
+services:
+  # Jaeger all-in-one — used to verify tracing (task trace:up)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  # Official Google PubSub emulator — used for integration test validation
+  real-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=test-project
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Our emulator — same tests must pass
+  our-emulator:
+    image: google-pubsub-emulator:local
+    ports:
+      - "8086:8085"
+    environment:
+      - PUBSUB_PROJECT_ID=test-project
+      # Set OTEL_EXPORTER_OTLP_ENDPOINT on the host to enable tracing.
+      # When using `task trace:up` this is automatically set to the Jaeger service.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Mount an init config to pre-create resources on startup:
+      # - INIT_CONFIG=/etc/pubsub/init.yaml
+    # volumes:
+    #   - ./init.example.yaml:/etc/pubsub/init.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/v1/projects/test-project/topics"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
