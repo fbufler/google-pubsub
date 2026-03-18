@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"connectrpc.com/grpcreflect"
 
 	"github.com/fbufler/google-pubsub/gen/google/pubsub/v1/pubsubpbconnect"
 	"github.com/fbufler/google-pubsub/internal/handler"
@@ -42,6 +43,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle(pubsubpbconnect.NewPublisherHandler(pub))
 	mux.Handle(pubsubpbconnect.NewSubscriberHandler(sub))
+
+
+	reflector := grpcreflect.NewStaticReflector(
+		pubsubpbconnect.PublisherName,
+		pubsubpbconnect.SubscriberName,
+	)
+	mux.Handle(grpcreflect.NewHandlerV1(reflector))
+	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
 
 	slog.Info("starting pubsub emulator", "addr", addr)
 	if err := http.ListenAndServe(addr, h2c.NewHandler(mux, &http2.Server{})); err != nil {
