@@ -7,10 +7,11 @@ require (
 	cloud.google.com/go/pubsub/v2 v2.4.0
 	connectrpc.com/connect v1.19.1
 	connectrpc.com/grpcreflect v1.3.0
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0
 	golang.org/x/net v0.52.0
 	google.golang.org/api v0.259.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260316180232-0b37fe3546d5
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -37,7 +38,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
