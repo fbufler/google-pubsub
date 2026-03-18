@@ -42,15 +42,31 @@ func (s *Store) PullPending(subName string, maxMessages int32) ([]*domain.Pendin
 	}
 	pending := s.pending[subName]
 	now := time.Now()
+
+	// For ordered subscriptions: track which ordering keys already have an
+	// outstanding (leased) message so we never deliver more than one at a time.
+	leasedKeys := make(map[string]bool)
+	if sub.EnableMessageOrdering {
+		for _, p := range pending {
+			if p.Message.OrderingKey != "" && p.AckDeadline.After(now) {
+				leasedKeys[p.Message.OrderingKey] = true
+			}
+		}
+	}
+
 	var result []*domain.PendingMessage
 	for _, p := range pending {
 		if int32(len(result)) >= maxMessages {
 			break
 		}
-		// Only deliver messages whose ack deadline has not been exceeded, or
-		// that are newly available (deadline in the past means re-delivery).
 		if p.AckDeadline.After(now) {
 			continue // already leased, not yet expired
+		}
+		if sub.EnableMessageOrdering && p.Message.OrderingKey != "" {
+			if leasedKeys[p.Message.OrderingKey] {
+				continue // wait for the outstanding message to be acked first
+			}
+			leasedKeys[p.Message.OrderingKey] = true
 		}
 		p.AckDeadline = now.Add(sub.AckDeadline)
 		p.DeliveryAttempt++
