@@ -1,120 +1,120 @@
 version: "3"
 
 tasks:
-  default:
-    desc: List all tasks
-    cmds:
-      - task --list
+    default:
+        desc: List all tasks
+        cmds:
+            - task --list
 
-  # --- Proto ---
-  proto:update:
-    desc: Fetch the latest pubsub proto spec from googleapis/googleapis
-    vars:
-      BASE: https://raw.githubusercontent.com/googleapis/googleapis/master
-      DIR: proto/google/pubsub/v1
-    cmds:
-      - curl -fsSL {{.BASE}}/google/pubsub/v1/pubsub.proto -o {{.DIR}}/pubsub.proto
-      - curl -fsSL {{.BASE}}/google/pubsub/v1/schema.proto  -o {{.DIR}}/schema.proto
-      - buf dep update
+    # --- Proto ---
+    proto:update:
+        desc: Fetch the latest pubsub proto spec from googleapis/googleapis
+        vars:
+            BASE: https://raw.githubusercontent.com/googleapis/googleapis/master
+            DIR: proto/google/pubsub/v1
+        cmds:
+            - curl -fsSL {{.BASE}}/google/pubsub/v1/pubsub.proto -o {{.DIR}}/pubsub.proto
+            - curl -fsSL {{.BASE}}/google/pubsub/v1/schema.proto  -o {{.DIR}}/schema.proto
+            - buf dep update
 
-  proto:generate:
-    desc: Generate Go code from proto definitions
-    cmds:
-      - buf generate
-      - go mod tidy
+    proto:generate:
+        desc: Generate Go code from proto definitions
+        cmds:
+            - buf generate
+            - go mod tidy
 
-  proto:lint:
-    desc: Lint proto files
-    cmds:
-      - buf lint
+    proto:lint:
+        desc: Lint proto files
+        cmds:
+            - buf lint
 
-  proto:breaking:
-    desc: Check for breaking changes against main branch
-    cmds:
-      - buf breaking --against '.git#branch=main'
+    proto:breaking:
+        desc: Check for breaking changes against main branch
+        cmds:
+            - buf breaking --against '.git#branch=main'
 
-  # --- Build ---
-  build:
-    desc: Build the emulator binary
-    cmds:
-      - go build -o bin/emulator ./cmd/server
+    # --- Build ---
+    build:
+        desc: Build the emulator binary
+        cmds:
+            - go build -o bin/emulator ./cmd/server
 
-  # --- Lint ---
-  lint:
-    desc: Run golangci-lint
-    cmds:
-      - golangci-lint run ./...
+    # --- Lint ---
+    lint:
+        desc: Run golangci-lint
+        cmds:
+            - golangci-lint run ./...
 
-  # --- Tests ---
-  test:unit:
-    desc: Run unit tests
-    cmds:
-      - go test ./internal/... -v
+    # --- Tests ---
+    test:unit:
+        desc: Run unit tests
+        cmds:
+            - go test ./internal/... -v
 
-  test:integration:real:
-    desc: Run integration tests against the real Google PubSub emulator
-    cmds:
-      - docker compose up -d real-emulator
-      - defer: docker compose stop real-emulator
-      - PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s -skip "TestReflection|TestRESTGateway|TestHealthEndpoints"
+    test:integration:real:
+        desc: Run integration tests against the real Google PubSub emulator
+        cmds:
+            - docker compose up -d real-emulator
+            - defer: docker compose stop real-emulator
+            - PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s -skip "TestReflection|TestHealthEndpoints"
 
-  test:integration:ours:
-    desc: Run integration tests against our emulator
-    deps:
-      - docker:build
-    cmds:
-      - docker compose up -d our-emulator
-      - defer: docker compose stop our-emulator
-      - PUBSUB_EMULATOR_HOST=localhost:8086 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s
+    test:integration:ours:
+        desc: Run integration tests against our emulator
+        deps:
+            - docker:build
+        cmds:
+            - docker compose up -d our-emulator
+            - defer: docker compose stop our-emulator
+            - PUBSUB_EMULATOR_HOST=localhost:8086 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s
 
-  test:all:
-    desc: Run unit tests + integration tests against both emulators
-    cmds:
-      - task: test:unit
-      - task: test:integration:real
-      - task: test:integration:ours
+    test:all:
+        desc: Run unit tests + integration tests against both emulators
+        cmds:
+            - task: test:unit
+            - task: test:integration:real
+            - task: test:integration:ours
 
-  # --- Docker ---
-  docker:build:
-    desc: Build the emulator Docker image
-    cmds:
-      - docker build -t google-pubsub-emulator:local .
+    # --- Docker ---
+    docker:build:
+        desc: Build the emulator Docker image
+        cmds:
+            - docker build -t google-pubsub-emulator:local .
 
-  docker:up:
-    desc: Start all services
-    cmds:
-      - docker compose up -d
+    docker:up:
+        desc: Start all services
+        cmds:
+            - docker compose up -d
 
-  docker:down:
-    desc: Stop all services
-    cmds:
-      - docker compose down
+    docker:down:
+        desc: Stop all services
+        cmds:
+            - docker compose down
 
-  docker:logs:
-    desc: Tail logs for all services
-    cmds:
-      - docker compose logs -f
+    docker:logs:
+        desc: Tail logs for all services
+        cmds:
+            - docker compose logs -f
 
-  # --- CI ---
-  ci:update:
-    desc: Fetch latest proto spec, regenerate, test both emulators, commit if tests pass
-    cmds:
-      - task: proto:update
-      - task: proto:generate
-      - task: proto:lint
-      - task: test:integration:real
-      - task: docker:build
-      - task: test:integration:ours
-      - |
-        if git diff --quiet && git diff --staged --quiet; then
-          echo "No changes to commit."
-        else
-          git add proto/google/pubsub/v1/pubsub.proto \
-                  proto/google/pubsub/v1/schema.proto \
-                  gen/ buf.lock go.mod go.sum
-          git commit -m "chore: update pubsub proto spec and regenerate
+    # --- CI ---
+    ci:update:
+        desc: Fetch latest proto spec, regenerate, test both emulators, commit if tests pass
+        cmds:
+            - task: proto:update
+            - task: proto:generate
+            - task: proto:lint
+            - task: test:integration:real
+            - task: docker:build
+            - task: test:integration:ours
+            - |
+                if git diff --quiet && git diff --staged --quiet; then
+                  echo "No changes to commit."
+                else
+                  git add proto/google/pubsub/v1/pubsub.proto \
+                          proto/google/pubsub/v1/schema.proto \
+                          gen/ buf.lock go.mod go.sum
+                  git commit -m "chore: update pubsub proto spec and regenerate
 
-        Fetched latest google/pubsub/v1 proto from googleapis/googleapis.
-        All integration tests pass against both the real emulator and ours."
-          echo "Changes committed."
-        fi
+                Fetched latest google/pubsub/v1 proto from googleapis/googleapis.
+                All integration tests pass against both the real emulator and ours."
+                  echo "Changes committed."
+                fi
