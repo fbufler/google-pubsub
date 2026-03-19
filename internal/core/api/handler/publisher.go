@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"time"
 
 	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"connectrpc.com/connect"
@@ -11,8 +10,9 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/fbufler/google-pubsub/gen/google/pubsub/v1/pubsubpbconnect"
-	"github.com/fbufler/google-pubsub/internal/domain"
-	"github.com/fbufler/google-pubsub/internal/storage"
+	"github.com/fbufler/google-pubsub/internal/core/entities"
+	"github.com/fbufler/google-pubsub/internal/core/types"
+	"github.com/fbufler/google-pubsub/internal/core/usecases"
 )
 
 var _ pubsubpbconnect.PublisherHandler = (*Publisher)(nil)
@@ -20,11 +20,12 @@ var _ pubsubpbconnect.PublisherHandler = (*Publisher)(nil)
 // Publisher implements the PubSub Publisher gRPC service.
 type Publisher struct {
 	pubsubpbconnect.UnimplementedPublisherHandler
-	store *storage.Store
+	topic   *usecases.TopicUsecase
+	publish *usecases.PublisherUsecase
 }
 
-func NewPublisher(store *storage.Store) *Publisher {
-	return &Publisher{store: store}
+func NewPublisher(topic *usecases.TopicUsecase, publish *usecases.PublisherUsecase) *Publisher {
+	return &Publisher{topic: topic, publish: publish}
 }
 
 func (p *Publisher) CreateTopic(_ context.Context, req *connect.Request[pubsubpb.Topic]) (*connect.Response[pubsubpb.Topic], error) {
@@ -32,16 +33,23 @@ func (p *Publisher) CreateTopic(_ context.Context, req *connect.Request[pubsubpb
 	if t.Name == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("topic name is required"))
 	}
-	topic := &domain.Topic{
-		Name:      t.Name,
-		Labels:    t.Labels,
-		CreatedAt: time.Now(),
+	topic := new(entities.Topic)
+	if err := topic.SetName(types.FQDN(t.Name)); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if len(t.Labels) > 0 {
+		if err := topic.SetLabels(types.Labels(t.Labels)); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 	}
 	if t.MessageRetentionDuration != nil {
-		topic.MessageRetention = t.MessageRetentionDuration.AsDuration()
+		if err := topic.SetMessageRetention(t.MessageRetentionDuration.AsDuration()); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 	}
-	if err := p.store.CreateTopic(topic); err != nil {
-		if err == domain.ErrAlreadyExists {
+
+	if err := p.topic.CreateTopic(topic); err != nil {
+		if err == types.ErrAlreadyExists {
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("topic %q already exists", t.Name))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -50,9 +58,9 @@ func (p *Publisher) CreateTopic(_ context.Context, req *connect.Request[pubsubpb
 }
 
 func (p *Publisher) GetTopic(_ context.Context, req *connect.Request[pubsubpb.GetTopicRequest]) (*connect.Response[pubsubpb.Topic], error) {
-	topic, err := p.store.GetTopic(req.Msg.Topic)
+	topic, err := p.topic.GetTopic(types.FQDN(req.Msg.Topic))
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -64,9 +72,9 @@ func (p *Publisher) UpdateTopic(_ context.Context, req *connect.Request[pubsubpb
 	if req.Msg.Topic == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("topic is required"))
 	}
-	existing, err := p.store.GetTopic(req.Msg.Topic.Name)
+	existing, err := p.topic.GetTopic(types.FQDN(req.Msg.Topic.Name))
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic.Name))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -74,22 +82,26 @@ func (p *Publisher) UpdateTopic(_ context.Context, req *connect.Request[pubsubpb
 	for _, path := range req.Msg.UpdateMask.GetPaths() {
 		switch path {
 		case "labels":
-			existing.Labels = req.Msg.Topic.Labels
+			if err := existing.SetLabels(types.Labels(req.Msg.Topic.Labels)); err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			}
 		case "message_retention_duration":
 			if req.Msg.Topic.MessageRetentionDuration != nil {
-				existing.MessageRetention = req.Msg.Topic.MessageRetentionDuration.AsDuration()
+				if err := existing.SetMessageRetention(req.Msg.Topic.MessageRetentionDuration.AsDuration()); err != nil {
+					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+				}
 			}
 		}
 	}
-	if err := p.store.UpdateTopic(existing); err != nil {
+	if err := p.topic.UpdateTopic(existing); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(topicToProto(existing)), nil
 }
 
 func (p *Publisher) DeleteTopic(_ context.Context, req *connect.Request[pubsubpb.DeleteTopicRequest]) (*connect.Response[emptypb.Empty], error) {
-	if err := p.store.DeleteTopic(req.Msg.Topic); err != nil {
-		if err == domain.ErrNotFound {
+	if err := p.topic.DeleteTopic(types.FQDN(req.Msg.Topic)); err != nil {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -98,8 +110,7 @@ func (p *Publisher) DeleteTopic(_ context.Context, req *connect.Request[pubsubpb
 }
 
 func (p *Publisher) ListTopics(_ context.Context, req *connect.Request[pubsubpb.ListTopicsRequest]) (*connect.Response[pubsubpb.ListTopicsResponse], error) {
-	project := projectID(req.Msg.Project)
-	topics, err := p.store.ListTopics(project)
+	topics, err := p.topic.ListTopics(projectID(req.Msg.Project))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -111,24 +122,28 @@ func (p *Publisher) ListTopics(_ context.Context, req *connect.Request[pubsubpb.
 }
 
 func (p *Publisher) ListTopicSubscriptions(_ context.Context, req *connect.Request[pubsubpb.ListTopicSubscriptionsRequest]) (*connect.Response[pubsubpb.ListTopicSubscriptionsResponse], error) {
-	names, err := p.store.ListTopicSubscriptions(req.Msg.Topic)
+	names, err := p.topic.ListTopicSubscriptions(types.FQDN(req.Msg.Topic))
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&pubsubpb.ListTopicSubscriptionsResponse{Subscriptions: names}), nil
+	strNames := make([]string, len(names))
+	for i, n := range names {
+		strNames[i] = n.String()
+	}
+	return connect.NewResponse(&pubsubpb.ListTopicSubscriptionsResponse{Subscriptions: strNames}), nil
 }
 
 func (p *Publisher) ListTopicSnapshots(_ context.Context, req *connect.Request[pubsubpb.ListTopicSnapshotsRequest]) (*connect.Response[pubsubpb.ListTopicSnapshotsResponse], error) {
-	snaps, err := p.store.ListSnapshotsByTopic(req.Msg.Topic)
+	snaps, err := p.topic.ListTopicSnapshots(types.FQDN(req.Msg.Topic))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	var names []string
-	for _, s := range snaps {
-		names = append(names, s.Name)
+	names := make([]string, len(snaps))
+	for i, s := range snaps {
+		names[i] = s.Name().String()
 	}
 	return connect.NewResponse(&pubsubpb.ListTopicSnapshotsResponse{Snapshots: names}), nil
 }
@@ -137,22 +152,23 @@ func (p *Publisher) Publish(_ context.Context, req *connect.Request[pubsubpb.Pub
 	if req.Msg.Topic == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("topic is required"))
 	}
-	now := time.Now()
-	msgs := make([]*domain.Message, 0, len(req.Msg.Messages))
-	ids := make([]string, 0, len(req.Msg.Messages))
+	msgs := make([]*entities.Message, 0, len(req.Msg.Messages))
 	for _, m := range req.Msg.Messages {
-		id := storage.NewMsgID()
-		ids = append(ids, id)
-		msgs = append(msgs, &domain.Message{
-			ID:          id,
-			Data:        m.Data,
-			Attributes:  m.Attributes,
-			OrderingKey: m.OrderingKey,
-			PublishTime: now,
-		})
+		msg := new(entities.Message)
+		if err := msg.SetData(m.Data); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if err := msg.SetAttributes(m.Attributes); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if err := msg.SetOrderingKey(m.OrderingKey); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		msgs = append(msgs, msg)
 	}
-	if err := p.store.AppendMessages(req.Msg.Topic, msgs); err != nil {
-		if err == domain.ErrNotFound {
+	ids, err := p.publish.Publish(types.FQDN(req.Msg.Topic), msgs)
+	if err != nil {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -161,27 +177,25 @@ func (p *Publisher) Publish(_ context.Context, req *connect.Request[pubsubpb.Pub
 }
 
 func (p *Publisher) DetachSubscription(_ context.Context, req *connect.Request[pubsubpb.DetachSubscriptionRequest]) (*connect.Response[pubsubpb.DetachSubscriptionResponse], error) {
-	sub, err := p.store.GetSubscription(req.Msg.Subscription)
-	if err != nil {
-		if err == domain.ErrNotFound {
+	if err := p.topic.DetachSubscription(types.FQDN(req.Msg.Subscription)); err != nil {
+		if err == types.ErrNotFound {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	sub.TopicName = "_deleted-topic_"
-	if err := p.store.UpdateSubscription(sub); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&pubsubpb.DetachSubscriptionResponse{}), nil
 }
 
-func topicToProto(t *domain.Topic) *pubsubpb.Topic {
+// --- proto converters ---
+
+func topicToProto(t *entities.Topic) *pubsubpb.Topic {
 	pt := &pubsubpb.Topic{
-		Name:   t.Name,
-		Labels: t.Labels,
+		Name:   t.Name().String(),
+		Labels: map[string]string(t.Labels()),
 	}
-	if t.MessageRetention > 0 {
-		pt.MessageRetentionDuration = durationpb.New(t.MessageRetention)
+	if t.MessageRetention() > 0 {
+		pt.MessageRetentionDuration = durationpb.New(t.MessageRetention())
 	}
 	return pt
 }
+
