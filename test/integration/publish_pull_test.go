@@ -5,6 +5,8 @@ package integration_test
 import (
 	"context"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,14 +63,18 @@ func TestPull_ReceiveMessages(t *testing.T) {
 		}
 	}
 
+	var mu sync.Mutex
 	received := make(map[string]bool)
 	recvCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	err := sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
+		mu.Lock()
 		received[string(msg.Data)] = true
+		n := len(received)
+		mu.Unlock()
 		msg.Ack()
-		if len(received) >= len(want) {
+		if n >= len(want) {
 			cancel()
 		}
 	})
@@ -100,13 +106,13 @@ func TestPull_Nack_Redelivery(t *testing.T) {
 		t.Fatalf("Publish: %v", err)
 	}
 
-	deliveries := 0
+	var deliveries atomic.Int32
 	recvCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	err = sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
-		deliveries++
-		if deliveries == 1 {
+		n := deliveries.Add(1)
+		if n == 1 {
 			msg.Nack()
 			return
 		}
@@ -116,8 +122,8 @@ func TestPull_Nack_Redelivery(t *testing.T) {
 	if err != nil && err != context.Canceled {
 		t.Fatalf("Receive: %v", err)
 	}
-	if deliveries < 2 {
-		t.Errorf("expected at least 2 deliveries (nack + redelivery), got %d", deliveries)
+	if deliveries.Load() < 2 {
+		t.Errorf("expected at least 2 deliveries (nack + redelivery), got %d", deliveries.Load())
 	}
 }
 
@@ -184,14 +190,18 @@ func TestPull_OrderingKey(t *testing.T) {
 		}
 	}
 
+	var mu sync.Mutex
 	var got []string
 	recvCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	err = sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
 		msg.Ack()
+		mu.Lock()
 		got = append(got, string(msg.Data))
-		if len(got) >= len(bodies) {
+		n := len(got)
+		mu.Unlock()
+		if n >= len(bodies) {
 			cancel()
 		}
 	})

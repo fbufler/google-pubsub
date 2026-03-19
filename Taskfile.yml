@@ -56,10 +56,12 @@ tasks:
     cmds:
       - docker compose up -d real-emulator
       - defer: docker compose stop real-emulator
-      - PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s -skip "TestReflection|TestRESTGateway"
+      - PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project go test ./test/integration/... -v -tags integration -timeout 120s -skip "TestReflection|TestRESTGateway|TestHealthEndpoints"
 
   test:integration:ours:
     desc: Run integration tests against our emulator
+    deps:
+      - docker:build
     cmds:
       - docker compose up -d our-emulator
       - defer: docker compose stop our-emulator
@@ -70,7 +72,6 @@ tasks:
     cmds:
       - task: test:unit
       - task: test:integration:real
-      - task: docker:build
       - task: test:integration:ours
 
   # --- Docker ---
