@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 
+	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
+	"connectrpc.com/otelconnect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -24,13 +26,24 @@ import (
 	"github.com/fbufler/google-pubsub/internal/core/storage/uow"
 	"github.com/fbufler/google-pubsub/internal/core/types"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
+	"github.com/fbufler/google-pubsub/internal/telemetry"
 )
 
 func main() {
-	addr := os.Getenv("LISTEN_ADDR")
-	if addr == "" {
-		addr = ":8085"
+	cfg := pubsubinit.LoadServerConfig()
+
+	// --- Telemetry ---
+	ctx := context.Background()
+	shutdownTracing, err := telemetry.Setup(ctx, "google-pubsub-emulator", cfg.OTELEndpoint)
+	if err != nil {
+		slog.Error("failed to setup tracing", "err", err)
+		os.Exit(1)
 	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			slog.Error("failed to shutdown tracing", "err", err)
+		}
+	}()
 
 	// --- Storage setup ---
 	initialState := &memory.State{
@@ -57,7 +70,7 @@ func main() {
 	}))
 
 	// --- Optional init config: pre-create topics and subscriptions on startup ---
-	if initPath := os.Getenv("INIT_CONFIG"); initPath != "" {
+	if initPath := cfg.InitConfigPath; initPath != "" {
 		cfg, err := pubsubinit.Load(initPath)
 		if err != nil {
 			slog.Error("failed to load init config", "path", initPath, "err", err)
@@ -74,6 +87,12 @@ func main() {
 	pub := handler.NewPublisher(topicUC, pubUC)
 	sub := handler.NewSubscriber(subUC, snapUC)
 
+	otelInterceptor, err := otelconnect.NewInterceptor()
+	if err != nil {
+		slog.Error("failed to create otel interceptor", "err", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 
 	// --- Health endpoints ---
@@ -86,8 +105,9 @@ func main() {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	mux.Handle(pubsubpbconnect.NewPublisherHandler(pub))
-	mux.Handle(pubsubpbconnect.NewSubscriberHandler(sub))
+	connectOpts := connect.WithInterceptors(otelInterceptor)
+	mux.Handle(pubsubpbconnect.NewPublisherHandler(pub, connectOpts))
+	mux.Handle(pubsubpbconnect.NewSubscriberHandler(sub, connectOpts))
 
 	reflector := grpcreflect.NewStaticReflector(
 		pubsubpbconnect.PublisherName,
@@ -97,10 +117,9 @@ func main() {
 	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
 
 	// --- gRPC-Gateway REST proxy ---
-	ctx := context.Background()
 	gwmux := runtime.NewServeMux()
 
-	dialAddr := addr
+	dialAddr := cfg.ListenAddr
 	if len(dialAddr) > 0 && dialAddr[0] == ':' {
 		dialAddr = "127.0.0.1" + dialAddr
 	}
@@ -117,8 +136,8 @@ func main() {
 
 	mux.Handle("/", gwmux)
 
-	slog.Info("starting pubsub emulator", "addr", addr)
-	if err := http.ListenAndServe(addr, h2c.NewHandler(mux, &http2.Server{})); err != nil {
+	slog.Info("starting pubsub emulator", "addr", cfg.ListenAddr)
+	if err := http.ListenAndServe(cfg.ListenAddr, h2c.NewHandler(mux, &http2.Server{})); err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}

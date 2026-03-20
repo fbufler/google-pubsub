@@ -74,6 +74,23 @@ tasks:
             - task: test:integration:official
             - task: test:integration:ours
 
+    # --- Tracing ---
+    trace:up:
+        desc: Start Jaeger and the emulator with tracing enabled (UI at http://localhost:16686)
+        deps:
+            - docker:build
+        env:
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+        cmds:
+            - docker compose up -d jaeger our-emulator
+            - echo "Jaeger UI  → http://localhost:16686"
+            - echo "Emulator   → http://localhost:8086"
+
+    trace:down:
+        desc: Stop Jaeger and the emulator
+        cmds:
+            - docker compose stop jaeger our-emulator
+
     # --- Docker ---
     docker:build:
         desc: Build the emulator Docker image
