@@ -20,7 +20,7 @@ echo "==> Running go mod tidy..."
 go mod tidy
 
 echo "==> Running tests against the real Google emulator..."
-task test:integration:real
+task test:integration:official
 
 echo "==> Building our Docker image..."
 task docker:build

@@ -2,7 +2,7 @@
 
 A lightweight Google Cloud Pub/Sub emulator written in pure Go.
 
-The official Google emulator is a Java application packaged in a ~600 MB Docker image. This project implements the same gRPC API in Go, producing a **~14 MB scratch-based image** that is fully compatible with the official [`cloud.google.com/go/pubsub`](https://pkg.go.dev/cloud.google.com/go/pubsub) client library.
+The official Google emulator is a Java application packaged in a ~600 MB Docker image. This project implements the same gRPC API in Go, producing a **really small scratch-based image** that is fully compatible with the official [`cloud.google.com/go/pubsub`](https://pkg.go.dev/cloud.google.com/go/pubsub) client library.
 
 ## Features
 
@@ -10,7 +10,7 @@ The official Google emulator is a Java application packaged in a ~600 MB Docker 
 - Full Subscriber API — pull, streaming pull, ack/nack, dead-letter, ordering
 - Snapshots — create, seek-to-snapshot, seek-to-time
 - Init config — pre-create topics and subscriptions on startup
-- Single static binary, scratch Docker image (~14 MB)
+- Single static binary, scratch Docker image
 - Validated against the real Google emulator with the same integration test suite
 
 ## Quick start
@@ -32,12 +32,12 @@ Pre-create topics and subscriptions on startup by mounting a YAML file:
 ```yaml
 # init.yaml
 projects:
-  - id: my-project
-    topics:
-      - name: orders
-        subscriptions:
-          - name: orders-processor
-            ack_deadline_seconds: 30
+    - id: my-project
+      topics:
+          - name: orders
+            subscriptions:
+                - name: orders-processor
+                  ack_deadline_seconds: 30
 ```
 
 ```bash
@@ -51,22 +51,22 @@ docker run --rm -p 8085:8085 \
 
 ```yaml
 services:
-  pubsub:
-    image: ghcr.io/fbufler/google-pubsub:latest
-    ports:
-      - "8085:8085"
-    environment:
-      - INIT_CONFIG=/etc/pubsub/init.yaml
-    volumes:
-      - ./init.yaml:/etc/pubsub/init.yaml:ro
+    pubsub:
+        image: ghcr.io/fbufler/google-pubsub:latest
+        ports:
+            - "8085:8085"
+        environment:
+            - INIT_CONFIG=/etc/pubsub/init.yaml
+        volumes:
+            - ./init.yaml:/etc/pubsub/init.yaml:ro
 ```
 
 ## Configuration
 
-| Environment variable | Default | Description |
-|---|---|---|
-| `LISTEN_ADDR` | `:8085` | Address the server listens on |
-| `INIT_CONFIG` | _(unset)_ | Path to a YAML init config file |
+| Environment variable | Default   | Description                     |
+| -------------------- | --------- | ------------------------------- |
+| `LISTEN_ADDR`        | `:8085`   | Address the server listens on   |
+| `INIT_CONFIG`        | _(unset)_ | Path to a YAML init config file |
 
 ## Development
 
@@ -79,41 +79,6 @@ mise install
 ```
 
 This installs Go, Task, buf, and golangci-lint at the versions defined in `mise.toml`.
-
-### Common tasks
-
-```bash
-task                        # list all tasks
-task build                  # build the binary → bin/emulator
-task test:unit              # run unit tests
-task test:integration:real  # run integration tests against the real Google emulator
-task test:integration:ours  # run integration tests against our emulator
-task test:all               # all of the above
-task proto:lint             # lint proto files
-task proto:generate         # regenerate Go code from proto
-task proto:update           # fetch latest proto spec from googleapis
-task docker:build           # build Docker image (google-pubsub-emulator:local)
-task ci:update              # full update: fetch spec → generate → test → commit
-```
-
-### Project structure
-
-```
-.
-├── cmd/server/          # entrypoint
-├── internal/
-│   ├── domain/          # core types: Topic, Subscription, Message, Snapshot
-│   ├── handler/         # connect-go gRPC handlers (Publisher, Subscriber)
-│   ├── init/            # startup init config loader
-│   └── storage/         # thread-safe in-memory store
-├── gen/                 # buf-generated protobuf + connect-go stubs
-├── proto/               # vendored google/pubsub/v1 proto sources
-├── test/integration/    # integration test suite (build tag: integration)
-├── buf.yaml             # buf workspace config
-├── buf.gen.yaml         # buf code generation config
-├── Taskfile.yml         # task runner
-└── docker-compose.yml   # real emulator + our emulator services
-```
 
 ### Proto toolchain
 
@@ -129,23 +94,17 @@ task proto:generate  # regenerate → gen/
 The test suite in `test/integration/` runs against a live emulator. It is skipped by default and enabled with the `integration` build tag.
 
 To validate against the **real** Google emulator:
+
 ```bash
-task test:integration:real
+task test:integration:official
 ```
 
 To validate against **our** emulator:
+
 ```bash
 task docker:build
 task test:integration:ours
 ```
-
-## CI
-
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `pr.yml` | Pull request → `main` | Lint, build, unit tests, integration tests against both emulators |
-| `release.yml` | GitHub release published | Multi-arch Docker build (`amd64` + `arm64`), push to GHCR |
-| `spec-update.yml` | Daily 06:00 UTC | Detects upstream proto changes, regenerates, tests, creates a draft release |
 
 All CI pipelines use [mise](https://mise.jdx.dev/) (`jdx/mise-action`) to install tools.
 

@@ -51,7 +51,7 @@ tasks:
         cmds:
             - go test ./internal/... -v
 
-    test:integration:real:
+    test:integration:official:
         desc: Run integration tests against the real Google PubSub emulator
         cmds:
             - docker compose up -d real-emulator
@@ -71,8 +71,25 @@ tasks:
         desc: Run unit tests + integration tests against both emulators
         cmds:
             - task: test:unit
-            - task: test:integration:real
+            - task: test:integration:official
             - task: test:integration:ours
+
+    # --- Tracing ---
+    trace:up:
+        desc: Start Jaeger and the emulator with tracing enabled (UI at http://localhost:16686)
+        deps:
+            - docker:build
+        env:
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+        cmds:
+            - docker compose up -d jaeger our-emulator
+            - echo "Jaeger UI  → http://localhost:16686"
+            - echo "Emulator   → http://localhost:8086"
+
+    trace:down:
+        desc: Stop Jaeger and the emulator
+        cmds:
+            - docker compose stop jaeger our-emulator
 
     # --- Docker ---
     docker:build:
@@ -102,7 +119,7 @@ tasks:
             - task: proto:update
             - task: proto:generate
             - task: proto:lint
-            - task: test:integration:real
+            - task: test:integration:official
             - task: docker:build
             - task: test:integration:ours
             - |

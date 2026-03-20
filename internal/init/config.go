@@ -82,7 +82,7 @@ func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.Subscrib
 				}
 			}
 
-			if err := topicUC.CreateTopic(topic); err != nil && err != types.ErrAlreadyExists {
+			if err := topicUC.CreateTopic(topic); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
 				return fmt.Errorf("create topic %q: %w", topicName, err)
 			}
 
@@ -117,7 +117,7 @@ func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.Subscrib
 					return fmt.Errorf("invalid filter for subscription %q: %w", subName, err)
 				}
 
-				if err := subUC.CreateSubscription(sub); err != nil && err != types.ErrAlreadyExists {
+				if err := subUC.CreateSubscription(sub); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
 					return fmt.Errorf("create subscription %q: %w", subName, err)
 				}
 			}
