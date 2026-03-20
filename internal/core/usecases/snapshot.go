@@ -28,20 +28,20 @@ func (s *SnapshotUsecase) CreateSnapshot(snap *entities.Snapshot) error {
 	return s.uow.Do(func(p SnapshotProvider) error {
 		sub, err := p.Subscriptions().GetSubscription(snap.SubscriptionName())
 		if err != nil {
-			return types.ErrNotFound
+			return fromPersistence(err)
 		}
 
 		if err := snap.SetTopicName(sub.TopicName()); err != nil {
-			return err
+			return types.WrapUsecaseError(types.UsecaseInternal, "failed to set snapshot topic", err)
 		}
 		if err := snap.SetExpireTime(time.Now().Add(7 * 24 * time.Hour)); err != nil {
-			return err
+			return types.WrapUsecaseError(types.UsecaseInternal, "failed to set snapshot expire time", err)
 		}
 		snap.SetCreatedAt(time.Now())
 
 		pending, err := p.PendingMessages().ListPending(snap.SubscriptionName())
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 		unackedMsgIDs := make([]string, 0, len(pending))
 		for _, pm := range pending {
@@ -49,7 +49,10 @@ func (s *SnapshotUsecase) CreateSnapshot(snap *entities.Snapshot) error {
 		}
 		snap.SetUnackedMsgIDs(unackedMsgIDs)
 
-		return p.Snapshots().CreateSnapshot(snap)
+		if err := p.Snapshots().CreateSnapshot(snap); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
@@ -58,20 +61,29 @@ func (s *SnapshotUsecase) GetSnapshot(name types.FQDN) (*entities.Snapshot, erro
 	err := s.uow.Do(func(p SnapshotProvider) error {
 		var err error
 		snap, err = p.Snapshots().GetSnapshot(name)
-		return err
+		if err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 	return snap, err
 }
 
 func (s *SnapshotUsecase) UpdateSnapshot(snap *entities.Snapshot) error {
 	return s.uow.Do(func(p SnapshotProvider) error {
-		return p.Snapshots().UpdateSnapshot(snap)
+		if err := p.Snapshots().UpdateSnapshot(snap); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
 func (s *SnapshotUsecase) DeleteSnapshot(name types.FQDN) error {
 	return s.uow.Do(func(p SnapshotProvider) error {
-		return p.Snapshots().DeleteSnapshot(name)
+		if err := p.Snapshots().DeleteSnapshot(name); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
@@ -80,7 +92,10 @@ func (s *SnapshotUsecase) ListSnapshots(project string) ([]*entities.Snapshot, e
 	err := s.uow.Do(func(p SnapshotProvider) error {
 		var err error
 		snaps, err = p.Snapshots().ListSnapshots(project)
-		return err
+		if err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 	return snaps, err
 }
@@ -91,12 +106,12 @@ func (s *SnapshotUsecase) SeekToTime(subName types.FQDN, t time.Time) error {
 	return s.uow.Do(func(p SnapshotProvider) error {
 		sub, err := p.Subscriptions().GetSubscription(subName)
 		if err != nil {
-			return types.ErrNotFound
+			return fromPersistence(err)
 		}
 
 		msgs, err := p.Messages().ListMessagesByTopic(sub.TopicName())
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		var newPending []*entities.PendingMessage
@@ -111,7 +126,10 @@ func (s *SnapshotUsecase) SeekToTime(subName types.FQDN, t time.Time) error {
 			}
 		}
 
-		return p.PendingMessages().ReplacePending(subName, newPending)
+		if err := p.PendingMessages().ReplacePending(subName, newPending); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
@@ -121,17 +139,17 @@ func (s *SnapshotUsecase) SeekToSnapshot(subName types.FQDN, snapName types.FQDN
 	return s.uow.Do(func(p SnapshotProvider) error {
 		snap, err := p.Snapshots().GetSnapshot(snapName)
 		if err != nil {
-			return types.ErrNotFound
+			return fromPersistence(err)
 		}
 
 		sub, err := p.Subscriptions().GetSubscription(subName)
 		if err != nil {
-			return types.ErrNotFound
+			return fromPersistence(err)
 		}
 
 		msgs, err := p.Messages().ListMessagesByTopic(sub.TopicName())
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		unackedSet := make(map[string]bool, len(snap.UnackedMsgIDs()))
@@ -152,6 +170,9 @@ func (s *SnapshotUsecase) SeekToSnapshot(subName types.FQDN, snapName types.FQDN
 			}
 		}
 
-		return p.PendingMessages().ReplacePending(subName, newPending)
+		if err := p.PendingMessages().ReplacePending(subName, newPending); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }

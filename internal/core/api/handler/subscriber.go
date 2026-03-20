@@ -42,14 +42,14 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 
 	sub := new(entities.Subscription)
 	if err := sub.SetName(types.FQDN(p.Name)); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 	if err := sub.SetTopicName(types.FQDN(p.Topic)); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 	if len(p.Labels) > 0 {
 		if err := sub.SetLabels(types.Labels(p.Labels)); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, toConnectError(err)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 		ackDeadline = time.Duration(p.AckDeadlineSeconds) * time.Second
 	}
 	if err := sub.SetAckDeadline(ackDeadline); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 
 	_ = sub.SetRetainAckedMessages(p.RetainAckedMessages)
@@ -68,11 +68,11 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 		msgRetention = p.MessageRetentionDuration.AsDuration()
 	}
 	if err := sub.SetMessageRetention(msgRetention); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 
 	if err := sub.SetFilter(p.Filter); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 	_ = sub.SetEnableMessageOrdering(p.EnableMessageOrdering)
 	_ = sub.SetEnableExactlyOnceDelivery(p.EnableExactlyOnceDelivery)
@@ -82,7 +82,7 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 			DeadLetterTopic:     p.DeadLetterPolicy.DeadLetterTopic,
 			MaxDeliveryAttempts: p.DeadLetterPolicy.MaxDeliveryAttempts,
 		}); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, toConnectError(err)
 		}
 	}
 	if p.RetryPolicy != nil {
@@ -94,7 +94,7 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 			rp.MaximumBackoff = p.RetryPolicy.MaximumBackoff.AsDuration()
 		}
 		if err := sub.SetRetryPolicy(rp); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, toConnectError(err)
 		}
 	}
 	if p.PushConfig != nil {
@@ -105,16 +105,8 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 	}
 
 	if err := s.sub.CreateSubscription(sub); err != nil {
-		if err == types.ErrAlreadyExists {
-			slog.Debug("create subscription: already exists", "subscription", p.Name)
-			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("subscription %q already exists", p.Name))
-		}
-		if err == types.ErrNotFound {
-			slog.Debug("create subscription: topic not found", "subscription", p.Name, "topic", p.Topic)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", p.Topic))
-		}
-		slog.Error("create subscription: internal error", "subscription", p.Name, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "create subscription failed", "subscription", p.Name)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("subscription created", "subscription", p.Name, "topic", p.Topic)
 	return connect.NewResponse(subToProto(sub)), nil
@@ -123,12 +115,8 @@ func (s *Subscriber) CreateSubscription(_ context.Context, req *connect.Request[
 func (s *Subscriber) GetSubscription(_ context.Context, req *connect.Request[pubsubpb.GetSubscriptionRequest]) (*connect.Response[pubsubpb.Subscription], error) {
 	sub, err := s.sub.GetSubscription(types.FQDN(req.Msg.Subscription))
 	if err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("get subscription: not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("get subscription: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "get subscription failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("subscription retrieved", "subscription", req.Msg.Subscription)
 	return connect.NewResponse(subToProto(sub)), nil
@@ -140,25 +128,23 @@ func (s *Subscriber) UpdateSubscription(_ context.Context, req *connect.Request[
 	}
 	existing, err := s.sub.GetSubscription(types.FQDN(req.Msg.Subscription.Name))
 	if err != nil {
-		if err == types.ErrNotFound {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription.Name))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "update subscription: get failed", "subscription", req.Msg.Subscription.Name)
+		return nil, toConnectError(err)
 	}
 	for _, path := range req.Msg.UpdateMask.GetPaths() {
 		switch path {
 		case "ack_deadline_seconds":
 			if err := existing.SetAckDeadline(time.Duration(req.Msg.Subscription.AckDeadlineSeconds) * time.Second); err != nil {
-				return nil, connect.NewError(connect.CodeInvalidArgument, err)
+				return nil, toConnectError(err)
 			}
 		case "labels":
 			if err := existing.SetLabels(types.Labels(req.Msg.Subscription.Labels)); err != nil {
-				return nil, connect.NewError(connect.CodeInvalidArgument, err)
+				return nil, toConnectError(err)
 			}
 		case "message_retention_duration":
 			if req.Msg.Subscription.MessageRetentionDuration != nil {
 				if err := existing.SetMessageRetention(req.Msg.Subscription.MessageRetentionDuration.AsDuration()); err != nil {
-					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+					return nil, toConnectError(err)
 				}
 			}
 		case "retain_acked_messages":
@@ -176,7 +162,7 @@ func (s *Subscriber) UpdateSubscription(_ context.Context, req *connect.Request[
 					DeadLetterTopic:     req.Msg.Subscription.DeadLetterPolicy.DeadLetterTopic,
 					MaxDeliveryAttempts: req.Msg.Subscription.DeadLetterPolicy.MaxDeliveryAttempts,
 				}); err != nil {
-					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+					return nil, toConnectError(err)
 				}
 			}
 		case "retry_policy":
@@ -189,14 +175,14 @@ func (s *Subscriber) UpdateSubscription(_ context.Context, req *connect.Request[
 					rp.MaximumBackoff = req.Msg.Subscription.RetryPolicy.MaximumBackoff.AsDuration()
 				}
 				if err := existing.SetRetryPolicy(rp); err != nil {
-					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+					return nil, toConnectError(err)
 				}
 			}
 		}
 	}
 	if err := s.sub.UpdateSubscription(existing); err != nil {
-		slog.Error("update subscription: internal error", "subscription", req.Msg.Subscription.Name, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "update subscription failed", "subscription", req.Msg.Subscription.Name)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("subscription updated", "subscription", req.Msg.Subscription.Name)
 	return connect.NewResponse(subToProto(existing)), nil
@@ -204,12 +190,8 @@ func (s *Subscriber) UpdateSubscription(_ context.Context, req *connect.Request[
 
 func (s *Subscriber) DeleteSubscription(_ context.Context, req *connect.Request[pubsubpb.DeleteSubscriptionRequest]) (*connect.Response[emptypb.Empty], error) {
 	if err := s.sub.DeleteSubscription(types.FQDN(req.Msg.Subscription)); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("delete subscription: not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("delete subscription: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "delete subscription failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("subscription deleted", "subscription", req.Msg.Subscription)
 	return connect.NewResponse(&emptypb.Empty{}), nil
@@ -218,8 +200,8 @@ func (s *Subscriber) DeleteSubscription(_ context.Context, req *connect.Request[
 func (s *Subscriber) ListSubscriptions(_ context.Context, req *connect.Request[pubsubpb.ListSubscriptionsRequest]) (*connect.Response[pubsubpb.ListSubscriptionsResponse], error) {
 	subs, err := s.sub.ListSubscriptions(projectID(req.Msg.Project))
 	if err != nil {
-		slog.Error("list subscriptions: internal error", "project", req.Msg.Project, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "list subscriptions failed", "project", req.Msg.Project)
+		return nil, toConnectError(err)
 	}
 	resp := &pubsubpb.ListSubscriptionsResponse{}
 	for _, sub := range subs {
@@ -237,17 +219,13 @@ func (s *Subscriber) Pull(_ context.Context, req *connect.Request[pubsubpb.PullR
 	subName := types.FQDN(req.Msg.Subscription)
 	msgs, err := s.sub.Pull(subName, max)
 	if err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("pull: subscription not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("pull: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "pull failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	msgs, err = s.sub.HandleDeadLetters(subName, msgs)
 	if err != nil {
-		slog.Error("pull: dead letter handling error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "dead letter handling failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	resp := &pubsubpb.PullResponse{}
 	for _, pm := range msgs {
@@ -259,12 +237,8 @@ func (s *Subscriber) Pull(_ context.Context, req *connect.Request[pubsubpb.PullR
 
 func (s *Subscriber) Acknowledge(_ context.Context, req *connect.Request[pubsubpb.AcknowledgeRequest]) (*connect.Response[emptypb.Empty], error) {
 	if err := s.sub.Acknowledge(types.FQDN(req.Msg.Subscription), req.Msg.AckIds); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("acknowledge: subscription not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("acknowledge: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "acknowledge failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("messages acknowledged", "subscription", req.Msg.Subscription, "count", len(req.Msg.AckIds))
 	return connect.NewResponse(&emptypb.Empty{}), nil
@@ -273,12 +247,8 @@ func (s *Subscriber) Acknowledge(_ context.Context, req *connect.Request[pubsubp
 func (s *Subscriber) ModifyAckDeadline(_ context.Context, req *connect.Request[pubsubpb.ModifyAckDeadlineRequest]) (*connect.Response[emptypb.Empty], error) {
 	deadline := time.Duration(req.Msg.AckDeadlineSeconds) * time.Second
 	if err := s.sub.ModifyAckDeadline(types.FQDN(req.Msg.Subscription), req.Msg.AckIds, deadline); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("modify ack deadline: subscription not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("modify ack deadline: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "modify ack deadline failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("ack deadline modified", "subscription", req.Msg.Subscription, "count", len(req.Msg.AckIds), "deadline", deadline)
 	return connect.NewResponse(&emptypb.Empty{}), nil
@@ -293,12 +263,8 @@ func (s *Subscriber) ModifyPushConfig(_ context.Context, req *connect.Request[pu
 		}
 	}
 	if err := s.sub.ModifyPushConfig(types.FQDN(req.Msg.Subscription), cfg); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("modify push config: subscription not found", "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("modify push config: internal error", "subscription", req.Msg.Subscription, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "modify push config failed", "subscription", req.Msg.Subscription)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("push config modified", "subscription", req.Msg.Subscription)
 	return connect.NewResponse(&emptypb.Empty{}), nil
@@ -315,12 +281,8 @@ func (s *Subscriber) StreamingPull(ctx context.Context, stream *connect.BidiStre
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("subscription is required"))
 	}
 	if _, err := s.sub.GetSubscription(subName); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("streaming pull: subscription not found", "subscription", subName)
-			return connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", subName))
-		}
-		slog.Error("streaming pull: internal error", "subscription", subName, "err", err)
-		return connect.NewError(connect.CodeInternal, err)
+		logErr(err, "streaming pull: subscription lookup failed", "subscription", subName)
+		return toConnectError(err)
 	}
 	slog.Debug("streaming pull connected", "subscription", subName)
 
@@ -365,11 +327,11 @@ func (s *Subscriber) StreamingPull(ctx context.Context, stream *connect.BidiStre
 		case <-ticker.C:
 			msgs, err := s.sub.Pull(subName, 100)
 			if err != nil {
-				return connect.NewError(connect.CodeInternal, err)
+				return toConnectError(err)
 			}
 			msgs, err = s.sub.HandleDeadLetters(subName, msgs)
 			if err != nil {
-				return connect.NewError(connect.CodeInternal, err)
+				return toConnectError(err)
 			}
 			if len(msgs) == 0 {
 				continue
@@ -387,8 +349,8 @@ func (s *Subscriber) StreamingPull(ctx context.Context, stream *connect.BidiStre
 
 func (s *Subscriber) processStreamReq(subName types.FQDN, req *pubsubpb.StreamingPullRequest) error {
 	if len(req.AckIds) > 0 {
-		if err := s.sub.Acknowledge(subName, req.AckIds); err != nil && err != types.ErrNotFound {
-			return connect.NewError(connect.CodeInternal, err)
+		if err := s.sub.Acknowledge(subName, req.AckIds); err != nil {
+			return toConnectError(err)
 		}
 	}
 	if len(req.ModifyDeadlineAckIds) > 0 && len(req.ModifyDeadlineSeconds) > 0 {
@@ -408,27 +370,19 @@ func (s *Subscriber) processStreamReq(subName types.FQDN, req *pubsubpb.Streamin
 func (s *Subscriber) CreateSnapshot(_ context.Context, req *connect.Request[pubsubpb.CreateSnapshotRequest]) (*connect.Response[pubsubpb.Snapshot], error) {
 	snap := new(entities.Snapshot)
 	if err := snap.SetName(types.FQDN(req.Msg.Name)); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 	if err := snap.SetSubscriptionName(types.FQDN(req.Msg.Subscription)); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, toConnectError(err)
 	}
 	if len(req.Msg.Labels) > 0 {
 		if err := snap.SetLabels(types.Labels(req.Msg.Labels)); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, toConnectError(err)
 		}
 	}
 	if err := s.snap.CreateSnapshot(snap); err != nil {
-		if err == types.ErrAlreadyExists {
-			slog.Debug("create snapshot: already exists", "snapshot", req.Msg.Name)
-			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("snapshot %q already exists", req.Msg.Name))
-		}
-		if err == types.ErrNotFound {
-			slog.Debug("create snapshot: subscription not found", "snapshot", req.Msg.Name, "subscription", req.Msg.Subscription)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-		}
-		slog.Error("create snapshot: internal error", "snapshot", req.Msg.Name, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "create snapshot failed", "snapshot", req.Msg.Name)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("snapshot created", "snapshot", req.Msg.Name, "subscription", req.Msg.Subscription)
 	return connect.NewResponse(snapshotToProto(snap)), nil
@@ -437,12 +391,8 @@ func (s *Subscriber) CreateSnapshot(_ context.Context, req *connect.Request[pubs
 func (s *Subscriber) GetSnapshot(_ context.Context, req *connect.Request[pubsubpb.GetSnapshotRequest]) (*connect.Response[pubsubpb.Snapshot], error) {
 	snap, err := s.snap.GetSnapshot(types.FQDN(req.Msg.Snapshot))
 	if err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("get snapshot: not found", "snapshot", req.Msg.Snapshot)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("snapshot %q not found", req.Msg.Snapshot))
-		}
-		slog.Error("get snapshot: internal error", "snapshot", req.Msg.Snapshot, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "get snapshot failed", "snapshot", req.Msg.Snapshot)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("snapshot retrieved", "snapshot", req.Msg.Snapshot)
 	return connect.NewResponse(snapshotToProto(snap)), nil
@@ -454,28 +404,26 @@ func (s *Subscriber) UpdateSnapshot(_ context.Context, req *connect.Request[pubs
 	}
 	existing, err := s.snap.GetSnapshot(types.FQDN(req.Msg.Snapshot.Name))
 	if err != nil {
-		if err == types.ErrNotFound {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("snapshot %q not found", req.Msg.Snapshot.Name))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "update snapshot: get failed", "snapshot", req.Msg.Snapshot.Name)
+		return nil, toConnectError(err)
 	}
 	for _, path := range req.Msg.UpdateMask.GetPaths() {
 		switch path {
 		case "labels":
 			if err := existing.SetLabels(types.Labels(req.Msg.Snapshot.Labels)); err != nil {
-				return nil, connect.NewError(connect.CodeInvalidArgument, err)
+				return nil, toConnectError(err)
 			}
 		case "expire_time":
 			if req.Msg.Snapshot.ExpireTime != nil {
 				if err := existing.RestoreExpireTime(req.Msg.Snapshot.ExpireTime.AsTime()); err != nil {
-					return nil, connect.NewError(connect.CodeInvalidArgument, err)
+					return nil, toConnectError(err)
 				}
 			}
 		}
 	}
 	if err := s.snap.UpdateSnapshot(existing); err != nil {
-		slog.Error("update snapshot: internal error", "snapshot", req.Msg.Snapshot.Name, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "update snapshot failed", "snapshot", req.Msg.Snapshot.Name)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("snapshot updated", "snapshot", req.Msg.Snapshot.Name)
 	return connect.NewResponse(snapshotToProto(existing)), nil
@@ -483,12 +431,8 @@ func (s *Subscriber) UpdateSnapshot(_ context.Context, req *connect.Request[pubs
 
 func (s *Subscriber) DeleteSnapshot(_ context.Context, req *connect.Request[pubsubpb.DeleteSnapshotRequest]) (*connect.Response[emptypb.Empty], error) {
 	if err := s.snap.DeleteSnapshot(types.FQDN(req.Msg.Snapshot)); err != nil {
-		if err == types.ErrNotFound {
-			slog.Debug("delete snapshot: not found", "snapshot", req.Msg.Snapshot)
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("snapshot %q not found", req.Msg.Snapshot))
-		}
-		slog.Error("delete snapshot: internal error", "snapshot", req.Msg.Snapshot, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "delete snapshot failed", "snapshot", req.Msg.Snapshot)
+		return nil, toConnectError(err)
 	}
 	slog.Debug("snapshot deleted", "snapshot", req.Msg.Snapshot)
 	return connect.NewResponse(&emptypb.Empty{}), nil
@@ -497,8 +441,8 @@ func (s *Subscriber) DeleteSnapshot(_ context.Context, req *connect.Request[pubs
 func (s *Subscriber) ListSnapshots(_ context.Context, req *connect.Request[pubsubpb.ListSnapshotsRequest]) (*connect.Response[pubsubpb.ListSnapshotsResponse], error) {
 	snaps, err := s.snap.ListSnapshots(projectID(req.Msg.Project))
 	if err != nil {
-		slog.Error("list snapshots: internal error", "project", req.Msg.Project, "err", err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		logErr(err, "list snapshots failed", "project", req.Msg.Project)
+		return nil, toConnectError(err)
 	}
 	resp := &pubsubpb.ListSnapshotsResponse{}
 	for _, snap := range snaps {
@@ -513,22 +457,14 @@ func (s *Subscriber) Seek(_ context.Context, req *connect.Request[pubsubpb.SeekR
 	switch target := req.Msg.Target.(type) {
 	case *pubsubpb.SeekRequest_Time:
 		if err := s.snap.SeekToTime(subName, target.Time.AsTime()); err != nil {
-			if err == types.ErrNotFound {
-				slog.Debug("seek: subscription not found", "subscription", req.Msg.Subscription)
-				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
-			}
-			slog.Error("seek: internal error", "subscription", req.Msg.Subscription, "err", err)
-			return nil, connect.NewError(connect.CodeInternal, err)
+			logErr(err, "seek to time failed", "subscription", req.Msg.Subscription)
+			return nil, toConnectError(err)
 		}
 		slog.Debug("subscription seeked to time", "subscription", req.Msg.Subscription, "time", target.Time.AsTime())
 	case *pubsubpb.SeekRequest_Snapshot:
 		if err := s.snap.SeekToSnapshot(subName, types.FQDN(target.Snapshot)); err != nil {
-			if err == types.ErrNotFound {
-				slog.Debug("seek: resource not found", "subscription", req.Msg.Subscription, "snapshot", target.Snapshot)
-				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("resource not found"))
-			}
-			slog.Error("seek: internal error", "subscription", req.Msg.Subscription, "snapshot", target.Snapshot, "err", err)
-			return nil, connect.NewError(connect.CodeInternal, err)
+			logErr(err, "seek to snapshot failed", "subscription", req.Msg.Subscription, "snapshot", target.Snapshot)
+			return nil, toConnectError(err)
 		}
 		slog.Debug("subscription seeked to snapshot", "subscription", req.Msg.Subscription, "snapshot", target.Snapshot)
 	default:

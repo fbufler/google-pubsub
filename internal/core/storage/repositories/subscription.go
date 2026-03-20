@@ -13,62 +13,57 @@ type SubscriptionRepository struct {
 }
 
 func NewSubscriptionRepository(state *memory.State) *SubscriptionRepository {
-	return &SubscriptionRepository{
-		state: state,
-	}
+	return &SubscriptionRepository{state: state}
 }
 
 func (r *SubscriptionRepository) CreateSubscription(sub *entities.Subscription) error {
 	model, err := mappers.SubscriptionEntityToModel(sub)
 	if err != nil {
-		return err
+		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map subscription", err)
 	}
-
 	if _, ok := r.state.Subscriptions[sub.Name()]; ok {
-		return types.ErrAlreadyExists
+		return types.NewPersistenceError(types.PersistenceAlreadyExists, "subscription already exists")
 	}
 	r.state.Subscriptions[sub.Name()] = model
-
 	return nil
 }
 
 func (r *SubscriptionRepository) GetSubscription(name types.FQDN) (*entities.Subscription, error) {
 	sub, ok := r.state.Subscriptions[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, types.NewPersistenceError(types.PersistenceNotFound, "subscription not found")
 	}
-
-	return mappers.SubscriptionModelToEntity(sub)
+	entity, err := mappers.SubscriptionModelToEntity(sub)
+	if err != nil {
+		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map subscription", err)
+	}
+	return entity, nil
 }
 
 func (r *SubscriptionRepository) UpdateSubscription(sub *entities.Subscription) error {
 	model, err := mappers.SubscriptionEntityToModel(sub)
 	if err != nil {
-		return err
+		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map subscription", err)
 	}
-
 	if _, ok := r.state.Subscriptions[sub.Name()]; !ok {
-		return types.ErrNotFound
+		return types.NewPersistenceError(types.PersistenceNotFound, "subscription not found")
 	}
 	r.state.Subscriptions[sub.Name()] = model
-
 	return nil
 }
 
 func (r *SubscriptionRepository) DeleteSubscription(name types.FQDN) error {
 	if _, ok := r.state.Subscriptions[name]; !ok {
-		return ErrNotFound
+		return types.NewPersistenceError(types.PersistenceNotFound, "subscription not found")
 	}
 	delete(r.state.Subscriptions, name)
-
 	return nil
 }
 
 func (r *SubscriptionRepository) ListSubscriptions(project string) ([]*entities.Subscription, error) {
 	prefix := types.FQDN("projects/" + project + "/subscriptions/")
-
 	if !prefix.IsValid() {
-		return nil, ErrInvalidProjectName
+		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")
 	}
 
 	var out []*models.Subscription
@@ -83,10 +78,9 @@ func (r *SubscriptionRepository) ListSubscriptions(project string) ([]*entities.
 		var err error
 		subs[i], err = mappers.SubscriptionModelToEntity(sub)
 		if err != nil {
-			return nil, err
+			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map subscription", err)
 		}
 	}
-
 	return subs, nil
 }
 
@@ -103,9 +97,8 @@ func (r *SubscriptionRepository) ListSubscriptionsByTopic(topicName types.FQDN) 
 		var err error
 		subs[i], err = mappers.SubscriptionModelToEntity(sub)
 		if err != nil {
-			return nil, err
+			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map subscription", err)
 		}
 	}
-
 	return subs, nil
 }

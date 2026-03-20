@@ -33,7 +33,7 @@ func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Mess
 		ids = make([]string, 0, len(msgs))
 
 		if _, err := p.Topics().GetTopic(topicName); err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		for _, m := range msgs {
@@ -44,13 +44,13 @@ func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Mess
 
 			key := types.FQDN(topicName.String() + "/messages/" + id)
 			if err := p.Messages().StoreMessage(key, m); err != nil {
-				return err
+				return fromPersistence(err)
 			}
 		}
 
 		subs, err := p.Subscriptions().ListSubscriptionsByTopic(topicName)
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		for _, sub := range subs {
@@ -64,7 +64,7 @@ func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Mess
 				pendingMsgs = append(pendingMsgs, pm)
 			}
 			if err := p.PendingMessages().AppendPending(sub.Name(), pendingMsgs); err != nil {
-				return err
+				return fromPersistence(err)
 			}
 		}
 

@@ -12,37 +12,35 @@ type MessageRepository struct {
 }
 
 func NewMessageRepository(state *memory.State) *MessageRepository {
-	return &MessageRepository{
-		state: state,
-	}
+	return &MessageRepository{state: state}
 }
 
 func (r *MessageRepository) StoreMessage(key types.FQDN, msg *entities.Message) error {
 	model, err := mappers.MessageEntityToModel(msg)
 	if err != nil {
-		return err
+		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
 	}
-
 	r.state.Messages[key] = model
-
 	return nil
 }
 
 func (r *MessageRepository) GetMessage(key types.FQDN) (*entities.Message, error) {
 	model, ok := r.state.Messages[key]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, types.NewPersistenceError(types.PersistenceNotFound, "message not found")
 	}
-
-	return mappers.MessageModelToEntity(model)
+	entity, err := mappers.MessageModelToEntity(model)
+	if err != nil {
+		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
+	}
+	return entity, nil
 }
 
 func (r *MessageRepository) DeleteMessage(key types.FQDN) error {
 	if _, ok := r.state.Messages[key]; !ok {
-		return ErrNotFound
+		return types.NewPersistenceError(types.PersistenceNotFound, "message not found")
 	}
 	delete(r.state.Messages, key)
-
 	return nil
 }
 
@@ -54,11 +52,10 @@ func (r *MessageRepository) ListMessagesByTopic(topicName types.FQDN) ([]*entiti
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
 			msg, err := mappers.MessageModelToEntity(model)
 			if err != nil {
-				return nil, err
+				return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
 			}
 			out = append(out, msg)
 		}
 	}
-
 	return out, nil
 }

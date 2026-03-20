@@ -13,62 +13,57 @@ type TopicRepository struct {
 }
 
 func NewTopicRepository(state *memory.State) *TopicRepository {
-	return &TopicRepository{
-		state: state,
-	}
+	return &TopicRepository{state: state}
 }
 
 func (r *TopicRepository) CreateTopic(topic *entities.Topic) error {
 	model, err := mappers.TopicEntityToModel(topic)
 	if err != nil {
-		return err
+		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
-
 	if _, ok := r.state.Topics[topic.Name()]; ok {
-		return types.ErrAlreadyExists
+		return types.NewPersistenceError(types.PersistenceAlreadyExists, "topic already exists")
 	}
 	r.state.Topics[topic.Name()] = model
-
 	return nil
 }
 
 func (r *TopicRepository) GetTopic(name types.FQDN) (*entities.Topic, error) {
 	topic, ok := r.state.Topics[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
-
-	return mappers.TopicModelToEntity(topic)
+	entity, err := mappers.TopicModelToEntity(topic)
+	if err != nil {
+		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
+	}
+	return entity, nil
 }
 
 func (r *TopicRepository) UpdateTopic(topic *entities.Topic) error {
 	model, err := mappers.TopicEntityToModel(topic)
 	if err != nil {
-		return err
+		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
-
 	if _, ok := r.state.Topics[topic.Name()]; !ok {
-		return types.ErrNotFound
+		return types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
 	r.state.Topics[topic.Name()] = model
-
 	return nil
 }
 
 func (r *TopicRepository) DeleteTopic(name types.FQDN) error {
 	if _, ok := r.state.Topics[name]; !ok {
-		return ErrNotFound
+		return types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
 	delete(r.state.Topics, name)
-
 	return nil
 }
 
 func (r *TopicRepository) ListTopics(project string) ([]*entities.Topic, error) {
 	prefix := types.FQDN("projects/" + project + "/topics/")
-
 	if !prefix.IsValid() {
-		return nil, ErrInvalidProjectName
+		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")
 	}
 
 	var out []*models.Topic
@@ -83,9 +78,8 @@ func (r *TopicRepository) ListTopics(project string) ([]*entities.Topic, error) 
 		var err error
 		topics[i], err = mappers.TopicModelToEntity(t)
 		if err != nil {
-			return nil, err
+			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 		}
 	}
-
 	return topics, nil
 }

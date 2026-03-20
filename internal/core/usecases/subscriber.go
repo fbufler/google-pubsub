@@ -27,10 +27,10 @@ func (s *SubscriberUsecase) CreateSubscription(sub *entities.Subscription) error
 	_ = sub.SetCreatedAt(time.Now())
 	return s.uow.Do(func(p SubscriberProvider) error {
 		if _, err := p.Topics().GetTopic(sub.TopicName()); err != nil {
-			return types.ErrNotFound
+			return fromPersistence(err)
 		}
 		if err := p.Subscriptions().CreateSubscription(sub); err != nil {
-			return err
+			return fromPersistence(err)
 		}
 		p.PendingMessages().InitSubscription(sub.Name())
 		return nil
@@ -42,21 +42,27 @@ func (s *SubscriberUsecase) GetSubscription(name types.FQDN) (*entities.Subscrip
 	err := s.uow.Do(func(p SubscriberProvider) error {
 		var err error
 		sub, err = p.Subscriptions().GetSubscription(name)
-		return err
+		if err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 	return sub, err
 }
 
 func (s *SubscriberUsecase) UpdateSubscription(sub *entities.Subscription) error {
 	return s.uow.Do(func(p SubscriberProvider) error {
-		return p.Subscriptions().UpdateSubscription(sub)
+		if err := p.Subscriptions().UpdateSubscription(sub); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
 func (s *SubscriberUsecase) DeleteSubscription(name types.FQDN) error {
 	return s.uow.Do(func(p SubscriberProvider) error {
 		if err := p.Subscriptions().DeleteSubscription(name); err != nil {
-			return err
+			return fromPersistence(err)
 		}
 		p.PendingMessages().DropSubscription(name)
 		return nil
@@ -68,7 +74,10 @@ func (s *SubscriberUsecase) ListSubscriptions(project string) ([]*entities.Subsc
 	err := s.uow.Do(func(p SubscriberProvider) error {
 		var err error
 		subs, err = p.Subscriptions().ListSubscriptions(project)
-		return err
+		if err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 	return subs, err
 }
@@ -77,10 +86,13 @@ func (s *SubscriberUsecase) ModifyPushConfig(subName types.FQDN, config *types.P
 	return s.uow.Do(func(p SubscriberProvider) error {
 		sub, err := p.Subscriptions().GetSubscription(subName)
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 		_ = sub.SetPushConfig(config)
-		return p.Subscriptions().UpdateSubscription(sub)
+		if err := p.Subscriptions().UpdateSubscription(sub); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
@@ -91,12 +103,12 @@ func (s *SubscriberUsecase) Pull(subName types.FQDN, maxMessages int32) ([]*enti
 	err := s.uow.Do(func(p SubscriberProvider) error {
 		sub, err := p.Subscriptions().GetSubscription(subName)
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		pending, err := p.PendingMessages().ListPending(subName)
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		now := time.Now()
@@ -131,14 +143,20 @@ func (s *SubscriberUsecase) Pull(subName types.FQDN, maxMessages int32) ([]*enti
 		}
 
 		// Persist the updated deadlines/attempt counts back to state.
-		return p.PendingMessages().ReplacePending(subName, pending)
+		if err := p.PendingMessages().ReplacePending(subName, pending); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 	return result, err
 }
 
 func (s *SubscriberUsecase) Acknowledge(subName types.FQDN, ackIDs []string) error {
 	return s.uow.Do(func(p SubscriberProvider) error {
-		return p.PendingMessages().RemoveByAckID(subName, ackIDs)
+		if err := p.PendingMessages().RemoveByAckID(subName, ackIDs); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
@@ -146,7 +164,7 @@ func (s *SubscriberUsecase) ModifyAckDeadline(subName types.FQDN, ackIDs []strin
 	return s.uow.Do(func(p SubscriberProvider) error {
 		pending, err := p.PendingMessages().ListPending(subName)
 		if err != nil {
-			return err
+			return fromPersistence(err)
 		}
 
 		set := make(map[string]bool, len(ackIDs))
@@ -160,7 +178,10 @@ func (s *SubscriberUsecase) ModifyAckDeadline(subName types.FQDN, ackIDs []strin
 			}
 		}
 
-		return p.PendingMessages().ReplacePending(subName, pending)
+		if err := p.PendingMessages().ReplacePending(subName, pending); err != nil {
+			return fromPersistence(err)
+		}
+		return nil
 	})
 }
 
