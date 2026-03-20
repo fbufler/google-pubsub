@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"connectrpc.com/connect"
@@ -50,10 +51,13 @@ func (p *Publisher) CreateTopic(_ context.Context, req *connect.Request[pubsubpb
 
 	if err := p.topic.CreateTopic(topic); err != nil {
 		if err == types.ErrAlreadyExists {
+			slog.Debug("create topic: already exists", "topic", t.Name)
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("topic %q already exists", t.Name))
 		}
+		slog.Error("create topic: internal error", "topic", t.Name, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("topic created", "topic", t.Name)
 	return connect.NewResponse(topicToProto(topic)), nil
 }
 
@@ -61,10 +65,13 @@ func (p *Publisher) GetTopic(_ context.Context, req *connect.Request[pubsubpb.Ge
 	topic, err := p.topic.GetTopic(types.FQDN(req.Msg.Topic))
 	if err != nil {
 		if err == types.ErrNotFound {
+			slog.Debug("get topic: not found", "topic", req.Msg.Topic)
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
+		slog.Error("get topic: internal error", "topic", req.Msg.Topic, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("topic retrieved", "topic", req.Msg.Topic)
 	return connect.NewResponse(topicToProto(topic)), nil
 }
 
@@ -94,30 +101,37 @@ func (p *Publisher) UpdateTopic(_ context.Context, req *connect.Request[pubsubpb
 		}
 	}
 	if err := p.topic.UpdateTopic(existing); err != nil {
+		slog.Error("update topic: internal error", "topic", req.Msg.Topic.Name, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("topic updated", "topic", req.Msg.Topic.Name)
 	return connect.NewResponse(topicToProto(existing)), nil
 }
 
 func (p *Publisher) DeleteTopic(_ context.Context, req *connect.Request[pubsubpb.DeleteTopicRequest]) (*connect.Response[emptypb.Empty], error) {
 	if err := p.topic.DeleteTopic(types.FQDN(req.Msg.Topic)); err != nil {
 		if err == types.ErrNotFound {
+			slog.Debug("delete topic: not found", "topic", req.Msg.Topic)
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
+		slog.Error("delete topic: internal error", "topic", req.Msg.Topic, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("topic deleted", "topic", req.Msg.Topic)
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 func (p *Publisher) ListTopics(_ context.Context, req *connect.Request[pubsubpb.ListTopicsRequest]) (*connect.Response[pubsubpb.ListTopicsResponse], error) {
 	topics, err := p.topic.ListTopics(projectID(req.Msg.Project))
 	if err != nil {
+		slog.Error("list topics: internal error", "project", req.Msg.Project, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	resp := &pubsubpb.ListTopicsResponse{}
 	for _, t := range topics {
 		resp.Topics = append(resp.Topics, topicToProto(t))
 	}
+	slog.Debug("topics listed", "project", req.Msg.Project, "count", len(resp.Topics))
 	return connect.NewResponse(resp), nil
 }
 
@@ -125,26 +139,31 @@ func (p *Publisher) ListTopicSubscriptions(_ context.Context, req *connect.Reque
 	names, err := p.topic.ListTopicSubscriptions(types.FQDN(req.Msg.Topic))
 	if err != nil {
 		if err == types.ErrNotFound {
+			slog.Debug("list topic subscriptions: topic not found", "topic", req.Msg.Topic)
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
+		slog.Error("list topic subscriptions: internal error", "topic", req.Msg.Topic, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	strNames := make([]string, len(names))
 	for i, n := range names {
 		strNames[i] = n.String()
 	}
+	slog.Debug("topic subscriptions listed", "topic", req.Msg.Topic, "count", len(strNames))
 	return connect.NewResponse(&pubsubpb.ListTopicSubscriptionsResponse{Subscriptions: strNames}), nil
 }
 
 func (p *Publisher) ListTopicSnapshots(_ context.Context, req *connect.Request[pubsubpb.ListTopicSnapshotsRequest]) (*connect.Response[pubsubpb.ListTopicSnapshotsResponse], error) {
 	snaps, err := p.topic.ListTopicSnapshots(types.FQDN(req.Msg.Topic))
 	if err != nil {
+		slog.Error("list topic snapshots: internal error", "topic", req.Msg.Topic, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	names := make([]string, len(snaps))
 	for i, s := range snaps {
 		names[i] = s.Name().String()
 	}
+	slog.Debug("topic snapshots listed", "topic", req.Msg.Topic, "count", len(names))
 	return connect.NewResponse(&pubsubpb.ListTopicSnapshotsResponse{Snapshots: names}), nil
 }
 
@@ -169,20 +188,26 @@ func (p *Publisher) Publish(_ context.Context, req *connect.Request[pubsubpb.Pub
 	ids, err := p.publish.Publish(types.FQDN(req.Msg.Topic), msgs)
 	if err != nil {
 		if err == types.ErrNotFound {
+			slog.Debug("publish: topic not found", "topic", req.Msg.Topic)
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("topic %q not found", req.Msg.Topic))
 		}
+		slog.Error("publish: internal error", "topic", req.Msg.Topic, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("messages published", "topic", req.Msg.Topic, "count", len(ids))
 	return connect.NewResponse(&pubsubpb.PublishResponse{MessageIds: ids}), nil
 }
 
 func (p *Publisher) DetachSubscription(_ context.Context, req *connect.Request[pubsubpb.DetachSubscriptionRequest]) (*connect.Response[pubsubpb.DetachSubscriptionResponse], error) {
 	if err := p.topic.DetachSubscription(types.FQDN(req.Msg.Subscription)); err != nil {
 		if err == types.ErrNotFound {
+			slog.Debug("detach subscription: not found", "subscription", req.Msg.Subscription)
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("subscription %q not found", req.Msg.Subscription))
 		}
+		slog.Error("detach subscription: internal error", "subscription", req.Msg.Subscription, "err", err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	slog.Debug("subscription detached", "subscription", req.Msg.Subscription)
 	return connect.NewResponse(&pubsubpb.DetachSubscriptionResponse{}), nil
 }
 

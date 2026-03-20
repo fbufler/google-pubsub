@@ -32,7 +32,13 @@ import (
 func main() {
 	cfg := pubsubinit.LoadServerConfig()
 
-	// --- Telemetry ---
+	// --- Logging ---
+	if err := telemetry.SetupLogging(cfg.LogLevel, cfg.LogFormat); err != nil {
+		slog.Error("failed to setup logging", "err", err)
+		os.Exit(1)
+	}
+
+	// --- Tracing ---
 	ctx := context.Background()
 	shutdownTracing, err := telemetry.Setup(ctx, "google-pubsub-emulator", cfg.OTELEndpoint)
 	if err != nil {

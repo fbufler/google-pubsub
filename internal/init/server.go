@@ -11,6 +11,10 @@ type ServerConfig struct {
 	// OTELEndpoint is the OTLP HTTP collector endpoint for tracing
 	// (OTEL_EXPORTER_OTLP_ENDPOINT). Empty means tracing is disabled.
 	OTELEndpoint string
+	// LogLevel controls the minimum log level (LOG_LEVEL: debug|info|warn|error, default "info").
+	LogLevel string
+	// LogFormat selects the log output format (LOG_FORMAT: text|json, default "text").
+	LogFormat string
 }
 
 // LoadServerConfig reads ServerConfig from environment variables.
@@ -19,6 +23,8 @@ func LoadServerConfig() *ServerConfig {
 		ListenAddr:     getEnv("LISTEN_ADDR", ":8085"),
 		InitConfigPath: os.Getenv("INIT_CONFIG"),
 		OTELEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		LogLevel:       getEnv("LOG_LEVEL", "info"),
+		LogFormat:      getEnv("LOG_FORMAT", "json"),
 	}
 }
 
