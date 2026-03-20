@@ -51,7 +51,7 @@ tasks:
         cmds:
             - go test ./internal/... -v
 
-    test:integration:real:
+    test:integration:official:
         desc: Run integration tests against the real Google PubSub emulator
         cmds:
             - docker compose up -d real-emulator
@@ -71,7 +71,7 @@ tasks:
         desc: Run unit tests + integration tests against both emulators
         cmds:
             - task: test:unit
-            - task: test:integration:real
+            - task: test:integration:official
             - task: test:integration:ours
 
     # --- Docker ---
@@ -102,7 +102,7 @@ tasks:
             - task: proto:update
             - task: proto:generate
             - task: proto:lint
-            - task: test:integration:real
+            - task: test:integration:official
             - task: docker:build
             - task: test:integration:ours
             - |
