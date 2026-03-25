@@ -21,19 +21,18 @@ func (s *SnapshotRepository) CreateSnapshot(snapshot *entities.Snapshot) error {
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
 	}
-	if _, ok := s.state.Snapshots[snapshot.Name()]; ok {
+	if _, loaded := s.state.Snapshots.LoadOrStore(snapshot.Name(), model); loaded {
 		return types.NewPersistenceError(types.PersistenceAlreadyExists, "snapshot already exists")
 	}
-	s.state.Snapshots[snapshot.Name()] = model
 	return nil
 }
 
 func (s *SnapshotRepository) GetSnapshot(name types.FQDN) (*entities.Snapshot, error) {
-	snapshot, ok := s.state.Snapshots[name]
+	v, ok := s.state.Snapshots.Load(name)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "snapshot not found")
 	}
-	entity, err := mappers.SnapshotModelToEntity(snapshot)
+	entity, err := mappers.SnapshotModelToEntity(v.(*models.Snapshot))
 	if err != nil {
 		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
 	}
@@ -45,18 +44,18 @@ func (s *SnapshotRepository) UpdateSnapshot(snapshot *entities.Snapshot) error {
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
 	}
-	if _, ok := s.state.Snapshots[snapshot.Name()]; !ok {
+	if _, ok := s.state.Snapshots.Load(snapshot.Name()); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "snapshot not found")
 	}
-	s.state.Snapshots[snapshot.Name()] = model
+	s.state.Snapshots.Store(snapshot.Name(), model)
 	return nil
 }
 
 func (s *SnapshotRepository) DeleteSnapshot(name types.FQDN) error {
-	if _, ok := s.state.Snapshots[name]; !ok {
+	if _, ok := s.state.Snapshots.Load(name); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "snapshot not found")
 	}
-	delete(s.state.Snapshots, name)
+	s.state.Snapshots.Delete(name)
 	return nil
 }
 
@@ -66,39 +65,43 @@ func (s *SnapshotRepository) ListSnapshots(project string) ([]*entities.Snapshot
 		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")
 	}
 
-	var out []*models.Snapshot
-	for _, snap := range s.state.Snapshots {
-		if len(snap.Name) >= len(prefix) && snap.Name[:len(prefix)] == prefix {
-			out = append(out, snap)
+	var raw []*models.Snapshot
+	s.state.Snapshots.Range(func(k, v any) bool {
+		fqdn := k.(types.FQDN)
+		if len(fqdn) >= len(prefix) && fqdn[:len(prefix)] == prefix {
+			raw = append(raw, v.(*models.Snapshot))
 		}
-	}
+		return true
+	})
 
-	result := make([]*entities.Snapshot, len(out))
-	for i, snap := range out {
+	out := make([]*entities.Snapshot, len(raw))
+	for i, snap := range raw {
 		var err error
-		result[i], err = mappers.SnapshotModelToEntity(snap)
+		out[i], err = mappers.SnapshotModelToEntity(snap)
 		if err != nil {
 			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
 		}
 	}
-	return result, nil
+	return out, nil
 }
 
 func (s *SnapshotRepository) ListSnapshotsByTopic(topicName types.FQDN) ([]*entities.Snapshot, error) {
-	var out []*models.Snapshot
-	for _, snap := range s.state.Snapshots {
+	var raw []*models.Snapshot
+	s.state.Snapshots.Range(func(_, v any) bool {
+		snap := v.(*models.Snapshot)
 		if snap.TopicName == topicName {
-			out = append(out, snap)
+			raw = append(raw, snap)
 		}
-	}
+		return true
+	})
 
-	result := make([]*entities.Snapshot, len(out))
-	for i, snap := range out {
+	out := make([]*entities.Snapshot, len(raw))
+	for i, snap := range raw {
 		var err error
-		result[i], err = mappers.SnapshotModelToEntity(snap)
+		out[i], err = mappers.SnapshotModelToEntity(snap)
 		if err != nil {
 			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
 		}
 	}
-	return result, nil
+	return out, nil
 }

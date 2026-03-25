@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"context"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -63,18 +62,18 @@ func TestPull_ReceiveMessages(t *testing.T) {
 		}
 	}
 
-	var mu sync.Mutex
-	received := make(map[string]bool)
+	var received sync.Map
+	var count int32 // Atomic counter for tracking received messages
+
 	recvCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	err := sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
-		mu.Lock()
-		received[string(msg.Data)] = true
-		n := len(received)
-		mu.Unlock()
+		received.Store(string(msg.Data), true)
+		n := atomic.AddInt32(&count, 1)
 		msg.Ack()
-		if n >= len(want) {
+
+		if int(n) >= len(want) {
 			cancel()
 		}
 	})
@@ -83,7 +82,7 @@ func TestPull_ReceiveMessages(t *testing.T) {
 	}
 
 	for _, body := range want {
-		if !received[body] {
+		if _, ok := received.Load(body); !ok {
 			t.Errorf("message %q not received", body)
 		}
 	}
@@ -190,33 +189,43 @@ func TestPull_OrderingKey(t *testing.T) {
 		}
 	}
 
-	var mu sync.Mutex
-	var got []string
+	// Create a buffered channel to hold the results
+	gotCh := make(chan string, len(bodies))
+
 	recvCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	err = sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
-		msg.Ack()
-		mu.Lock()
-		got = append(got, string(msg.Data))
-		n := len(got)
-		mu.Unlock()
-		if n >= len(bodies) {
-			cancel()
-		}
-	})
-	if err != nil && err != context.Canceled {
-		t.Fatalf("Receive: %v", err)
+	// sub.Receive blocks until the context is canceled or an error occurs
+	go func() {
+		err = sub.Receive(recvCtx, func(ctx context.Context, msg *pubsub.Message) {
+			gotCh <- string(msg.Data)
+			msg.Ack()
+
+			// If we've hit our count, stop receiving
+			if len(gotCh) == len(bodies) {
+				cancel()
+			}
+		})
+	}()
+
+	<-recvCtx.Done()
+
+	// Collect from channel
+	var got []string
+	close(gotCh) // Close so we can range over it
+	for msg := range gotCh {
+		got = append(got)
+		got = append(got, msg)
 	}
 
-	gotSorted := append([]string(nil), got...)
-	sort.Strings(gotSorted)
-	wantSorted := append([]string(nil), bodies...)
-	sort.Strings(wantSorted)
+	// Validation: No sorting! We want to check the actual order.
+	if len(got) != len(bodies) {
+		t.Fatalf("expected %d messages, got %d", len(bodies), len(got))
+	}
 
-	for i := range wantSorted {
-		if i >= len(gotSorted) || gotSorted[i] != wantSorted[i] {
-			t.Errorf("missing message %q", wantSorted[i])
+	for i, want := range bodies {
+		if got[i] != want {
+			t.Errorf("at index %d: got %q, want %q (Ordering failed!)", i, got[i], want)
 		}
 	}
 }

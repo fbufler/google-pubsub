@@ -4,6 +4,7 @@ import (
 	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/storage/mappers"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
+	"github.com/fbufler/google-pubsub/internal/core/storage/models"
 	"github.com/fbufler/google-pubsub/internal/core/types"
 )
 
@@ -20,16 +21,16 @@ func (r *MessageRepository) StoreMessage(key types.FQDN, msg *entities.Message) 
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
 	}
-	r.state.Messages[key] = model
+	r.state.Messages.Store(key, model)
 	return nil
 }
 
 func (r *MessageRepository) GetMessage(key types.FQDN) (*entities.Message, error) {
-	model, ok := r.state.Messages[key]
+	v, ok := r.state.Messages.Load(key)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "message not found")
 	}
-	entity, err := mappers.MessageModelToEntity(model)
+	entity, err := mappers.MessageModelToEntity(v.(*models.Message))
 	if err != nil {
 		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
 	}
@@ -37,24 +38,31 @@ func (r *MessageRepository) GetMessage(key types.FQDN) (*entities.Message, error
 }
 
 func (r *MessageRepository) DeleteMessage(key types.FQDN) error {
-	if _, ok := r.state.Messages[key]; !ok {
+	if _, ok := r.state.Messages.Load(key); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "message not found")
 	}
-	delete(r.state.Messages, key)
+	r.state.Messages.Delete(key)
 	return nil
 }
 
 func (r *MessageRepository) ListMessagesByTopic(topicName types.FQDN) ([]*entities.Message, error) {
 	prefix := topicName + "/messages/"
 
-	var out []*entities.Message
-	for key, model := range r.state.Messages {
+	var raw []*models.Message
+	r.state.Messages.Range(func(k, v any) bool {
+		key := k.(types.FQDN)
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
-			msg, err := mappers.MessageModelToEntity(model)
-			if err != nil {
-				return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
-			}
-			out = append(out, msg)
+			raw = append(raw, v.(*models.Message))
+		}
+		return true
+	})
+
+	out := make([]*entities.Message, len(raw))
+	for i, m := range raw {
+		var err error
+		out[i], err = mappers.MessageModelToEntity(m)
+		if err != nil {
+			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
 		}
 	}
 	return out, nil

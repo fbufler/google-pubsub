@@ -20,11 +20,8 @@ import (
 	"github.com/fbufler/google-pubsub/gen/google/pubsub/v1/pubsubpbconnect"
 	"github.com/fbufler/google-pubsub/internal/core/api/handler"
 	pubsubinit "github.com/fbufler/google-pubsub/internal/init"
-	storagemodels "github.com/fbufler/google-pubsub/internal/core/storage/models"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
 	"github.com/fbufler/google-pubsub/internal/core/storage/repositories"
-	"github.com/fbufler/google-pubsub/internal/core/storage/uow"
-	"github.com/fbufler/google-pubsub/internal/core/types"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
 	"github.com/fbufler/google-pubsub/internal/telemetry"
 )
@@ -51,38 +48,28 @@ func main() {
 		}
 	}()
 
-	// --- Storage setup ---
-	initialState := &memory.State{
-		Snapshots:       make(map[types.FQDN]*storagemodels.Snapshot),
-		Topics:          make(map[types.FQDN]*storagemodels.Topic),
-		Subscriptions:   make(map[types.FQDN]*storagemodels.Subscription),
-		Messages:        make(map[types.FQDN]*storagemodels.Message),
-		PendingMessages: make(map[types.FQDN][]*storagemodels.PendingMessage),
-	}
-	store := uow.NewMemoryStore(initialState)
+	// --- Storage: one shared State, one repo instance per type ---
+	state := &memory.State{}
+	topics := repositories.NewTopicRepository(state)
+	subscriptions := repositories.NewSubscriptionRepository(state)
+	snapshots := repositories.NewSnapshotRepository(state)
+	messages := repositories.NewMessageRepository(state)
+	pendingMessages := repositories.NewPendingMessageRepository(state)
 
 	// --- Use cases ---
-	topicUC := usecases.NewTopicUsecase(uow.NewMemoryUoW(store, func(s *memory.State) usecases.TopicProvider {
-		return repositories.NewProvider(s)
-	}))
-	pubUC := usecases.NewPublisher(uow.NewMemoryUoW(store, func(s *memory.State) usecases.PublishProvider {
-		return repositories.NewProvider(s)
-	}))
-	subUC := usecases.NewSubscriber(uow.NewMemoryUoW(store, func(s *memory.State) usecases.SubscriberProvider {
-		return repositories.NewProvider(s)
-	}))
-	snapUC := usecases.NewSnapshotUsecase(uow.NewMemoryUoW(store, func(s *memory.State) usecases.SnapshotProvider {
-		return repositories.NewProvider(s)
-	}))
+	topicUC := usecases.NewTopicUsecase(topics, subscriptions, snapshots)
+	pubUC := usecases.NewPublisher(topics, messages, subscriptions, pendingMessages)
+	subUC := usecases.NewSubscriber(topics, subscriptions, pendingMessages, messages)
+	snapUC := usecases.NewSnapshotUsecase(snapshots, subscriptions, messages, pendingMessages)
 
 	// --- Optional init config: pre-create topics and subscriptions on startup ---
 	if initPath := cfg.InitConfigPath; initPath != "" {
-		cfg, err := pubsubinit.Load(initPath)
+		initCfg, err := pubsubinit.Load(initPath)
 		if err != nil {
 			slog.Error("failed to load init config", "path", initPath, "err", err)
 			os.Exit(1)
 		}
-		if err := pubsubinit.Apply(cfg, topicUC, subUC); err != nil {
+		if err := pubsubinit.Apply(initCfg, topicUC, subUC); err != nil {
 			slog.Error("failed to apply init config", "err", err)
 			os.Exit(1)
 		}

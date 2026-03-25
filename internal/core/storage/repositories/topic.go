@@ -21,19 +21,18 @@ func (r *TopicRepository) CreateTopic(topic *entities.Topic) error {
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
-	if _, ok := r.state.Topics[topic.Name()]; ok {
+	if _, loaded := r.state.Topics.LoadOrStore(topic.Name(), model); loaded {
 		return types.NewPersistenceError(types.PersistenceAlreadyExists, "topic already exists")
 	}
-	r.state.Topics[topic.Name()] = model
 	return nil
 }
 
 func (r *TopicRepository) GetTopic(name types.FQDN) (*entities.Topic, error) {
-	topic, ok := r.state.Topics[name]
+	v, ok := r.state.Topics.Load(name)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
-	entity, err := mappers.TopicModelToEntity(topic)
+	entity, err := mappers.TopicModelToEntity(v.(*models.Topic))
 	if err != nil {
 		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
@@ -45,18 +44,18 @@ func (r *TopicRepository) UpdateTopic(topic *entities.Topic) error {
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
-	if _, ok := r.state.Topics[topic.Name()]; !ok {
+	if _, ok := r.state.Topics.Load(topic.Name()); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
-	r.state.Topics[topic.Name()] = model
+	r.state.Topics.Store(topic.Name(), model)
 	return nil
 }
 
 func (r *TopicRepository) DeleteTopic(name types.FQDN) error {
-	if _, ok := r.state.Topics[name]; !ok {
+	if _, ok := r.state.Topics.Load(name); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
-	delete(r.state.Topics, name)
+	r.state.Topics.Delete(name)
 	return nil
 }
 
@@ -66,20 +65,22 @@ func (r *TopicRepository) ListTopics(project string) ([]*entities.Topic, error) 
 		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")
 	}
 
-	var out []*models.Topic
-	for _, t := range r.state.Topics {
-		if len(t.Name) >= len(prefix) && t.Name[:len(prefix)] == prefix {
-			out = append(out, t)
+	var raw []*models.Topic
+	r.state.Topics.Range(func(k, v any) bool {
+		fqdn := k.(types.FQDN)
+		if len(fqdn) >= len(prefix) && fqdn[:len(prefix)] == prefix {
+			raw = append(raw, v.(*models.Topic))
 		}
-	}
+		return true
+	})
 
-	topics := make([]*entities.Topic, len(out))
-	for i, t := range out {
+	out := make([]*entities.Topic, len(raw))
+	for i, t := range raw {
 		var err error
-		topics[i], err = mappers.TopicModelToEntity(t)
+		out[i], err = mappers.TopicModelToEntity(t)
 		if err != nil {
 			return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 		}
 	}
-	return topics, nil
+	return out, nil
 }
