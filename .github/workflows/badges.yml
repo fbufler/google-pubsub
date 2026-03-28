@@ -73,7 +73,7 @@ jobs:
 
             - name: Build coverage-instrumented binary
               run: |
-                  go build -cover -coverpkg=./... -o bin/emulator-cov ./cmd/server
+                  go build -cover -coverpkg=github.com/fbufler/google-pubsub/internal/...,github.com/fbufler/google-pubsub/cmd/... -o bin/emulator-cov ./cmd/server
 
             - name: Run integration tests against covered binary
               id: coverage
