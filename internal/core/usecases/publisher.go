@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"context"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -32,8 +33,8 @@ func NewPublisher(
 // Publish assigns IDs and publish timestamps to msgs, stores them under topicName,
 // and fans them out to all subscriptions on that topic.
 // Returns the assigned message IDs in the same order as msgs.
-func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Message) ([]string, error) {
-	if _, err := pub.topics.GetTopic(topicName); err != nil {
+func (pub *PublisherUsecase) Publish(ctx context.Context, topicName types.FQDN, msgs []*entities.Message) ([]string, error) {
+	if _, err := pub.topics.GetTopic(ctx, topicName); err != nil {
 		return nil, fromPersistence(err)
 	}
 
@@ -41,17 +42,21 @@ func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Mess
 	ids := make([]string, 0, len(msgs))
 	for _, m := range msgs {
 		id := newMsgID()
-		_ = m.SetID(id)
-		_ = m.SetPublishTime(now)
+		if err := m.SetID(id); err != nil {
+			return nil, types.WrapUsecaseError(types.UsecaseInternal, "set message id", err)
+		}
+		if err := m.SetPublishTime(now); err != nil {
+			return nil, types.WrapUsecaseError(types.UsecaseInternal, "set message publish time", err)
+		}
 		ids = append(ids, id)
 
 		key := types.FQDN(topicName.String() + "/messages/" + id)
-		if err := pub.messages.StoreMessage(key, m); err != nil {
+		if err := pub.messages.StoreMessage(ctx, key, m); err != nil {
 			return nil, fromPersistence(err)
 		}
 	}
 
-	subs, err := pub.subscriptions.ListSubscriptionsByTopic(topicName)
+	subs, err := pub.subscriptions.ListSubscriptionsByTopic(ctx, topicName)
 	if err != nil {
 		return nil, fromPersistence(err)
 	}
@@ -59,14 +64,13 @@ func (pub *PublisherUsecase) Publish(topicName types.FQDN, msgs []*entities.Mess
 	for _, sub := range subs {
 		pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
 		for _, m := range msgs {
-			pm := new(entities.PendingMessage)
-			_ = pm.SetMessage(m)
-			_ = pm.SetAckID(newAckID())
-			_ = pm.SetAckDeadline(time.Time{})
-			_ = pm.SetSubscription(sub.Name())
+			pm, err := newPendingMessage(m, sub.Name())
+			if err != nil {
+				return nil, err
+			}
 			pendingMsgs = append(pendingMsgs, pm)
 		}
-		if err := pub.pendingMessages.Enqueue(sub.Name(), pendingMsgs); err != nil {
+		if err := pub.pendingMessages.Enqueue(ctx, sub.Name(), pendingMsgs); err != nil {
 			return nil, fromPersistence(err)
 		}
 	}

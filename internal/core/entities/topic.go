@@ -15,6 +15,10 @@ type Topic struct {
 	createdAt        time.Time
 }
 
+func NewTopic() *Topic {
+	return new(Topic)
+}
+
 // Name returns the topic name.
 func (t *Topic) Name() types.FQDN {
 	return t.name
@@ -70,7 +74,7 @@ func (t *Topic) KmsKeyName() types.CMEK {
 
 // SetKmsKeyName sets the topic KMS key name.
 func (t *Topic) SetKmsKeyName(kmsKeyName types.CMEK) error {
-	if !kmsKeyName.IsValid() {
+	if kmsKeyName != "" && !kmsKeyName.IsValid() {
 		return ErrInvalidTopicKmsKeyName
 	}
 

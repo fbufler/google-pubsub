@@ -69,7 +69,7 @@ func main() {
 			slog.Error("failed to load init config", "path", initPath, "err", err)
 			os.Exit(1)
 		}
-		if err := pubsubinit.Apply(initCfg, topicUC, subUC); err != nil {
+		if err := pubsubinit.Apply(ctx, initCfg, topicUC, subUC); err != nil {
 			slog.Error("failed to apply init config", "err", err)
 			os.Exit(1)
 		}
@@ -77,8 +77,8 @@ func main() {
 	}
 
 	// --- Handlers ---
-	pub := handler.NewPublisher(topicUC, pubUC)
-	sub := handler.NewSubscriber(subUC, snapUC)
+	pub := handler.NewPublisher(ctx, topicUC, pubUC)
+	sub := handler.NewSubscriber(ctx, subUC, snapUC)
 
 	otelInterceptor, err := otelconnect.NewInterceptor()
 	if err != nil {

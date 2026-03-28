@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"context"
+
 	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/storage/mappers"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
@@ -16,7 +18,7 @@ func NewMessageRepository(state *memory.State) *MessageRepository {
 	return &MessageRepository{state: state}
 }
 
-func (r *MessageRepository) StoreMessage(key types.FQDN, msg *entities.Message) error {
+func (r *MessageRepository) StoreMessage(_ context.Context, key types.FQDN, msg *entities.Message) error {
 	model, err := mappers.MessageEntityToModel(msg)
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map message", err)
@@ -25,7 +27,7 @@ func (r *MessageRepository) StoreMessage(key types.FQDN, msg *entities.Message) 
 	return nil
 }
 
-func (r *MessageRepository) GetMessage(key types.FQDN) (*entities.Message, error) {
+func (r *MessageRepository) GetMessage(_ context.Context, key types.FQDN) (*entities.Message, error) {
 	v, ok := r.state.Messages.Load(key)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "message not found")
@@ -37,7 +39,7 @@ func (r *MessageRepository) GetMessage(key types.FQDN) (*entities.Message, error
 	return entity, nil
 }
 
-func (r *MessageRepository) DeleteMessage(key types.FQDN) error {
+func (r *MessageRepository) DeleteMessage(_ context.Context, key types.FQDN) error {
 	if _, ok := r.state.Messages.Load(key); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "message not found")
 	}
@@ -45,7 +47,7 @@ func (r *MessageRepository) DeleteMessage(key types.FQDN) error {
 	return nil
 }
 
-func (r *MessageRepository) ListMessagesByTopic(topicName types.FQDN) ([]*entities.Message, error) {
+func (r *MessageRepository) ListMessagesByTopic(_ context.Context, topicName types.FQDN) ([]*entities.Message, error) {
 	prefix := topicName + "/messages/"
 
 	var raw []*models.Message

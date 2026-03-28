@@ -2,6 +2,7 @@
 package init
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -62,7 +63,7 @@ func Load(path string) (*Config, error) {
 }
 
 // Apply creates all resources defined in cfg, ignoring already-existing ones.
-func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.SubscriberUsecase) error {
+func Apply(ctx context.Context, cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.SubscriberUsecase) error {
 	for _, proj := range cfg.Projects {
 		for _, tc := range proj.Topics {
 			topicName := fmt.Sprintf("projects/%s/topics/%s", proj.ID, tc.Name)
@@ -82,7 +83,7 @@ func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.Subscrib
 				}
 			}
 
-			if err := topicUC.CreateTopic(topic); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
+			if _, err := topicUC.CreateTopic(ctx, topic); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
 				return fmt.Errorf("create topic %q: %w", topicName, err)
 			}
 
@@ -109,7 +110,9 @@ func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.Subscrib
 				if err := sub.SetAckDeadline(ackDeadline); err != nil {
 					return fmt.Errorf("invalid ack deadline for subscription %q: %w", subName, err)
 				}
-				_ = sub.SetRetainAckedMessages(sc.RetainAckedMessages)
+				if err := sub.SetRetainAckedMessages(sc.RetainAckedMessages); err != nil {
+				return fmt.Errorf("invalid retain_acked_messages for subscription %q: %w", subName, err)
+			}
 				if err := sub.SetMessageRetention(7 * 24 * time.Hour); err != nil {
 					return fmt.Errorf("invalid message retention for subscription %q: %w", subName, err)
 				}
@@ -117,7 +120,7 @@ func Apply(cfg *Config, topicUC *usecases.TopicUsecase, subUC *usecases.Subscrib
 					return fmt.Errorf("invalid filter for subscription %q: %w", subName, err)
 				}
 
-				if err := subUC.CreateSubscription(sub); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
+				if err := subUC.CreateSubscription(ctx, sub); err != nil && !types.IsUsecaseKind(err, types.UsecaseAlreadyExists) {
 					return fmt.Errorf("create subscription %q: %w", subName, err)
 				}
 			}

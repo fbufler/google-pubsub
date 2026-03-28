@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -27,17 +28,17 @@ func (r *PendingMessageRepository) queue(subName types.FQDN) (*memory.Subscripti
 }
 
 // InitSubscription creates an empty queue for a subscription.
-func (r *PendingMessageRepository) InitSubscription(subName types.FQDN) {
+func (r *PendingMessageRepository) InitSubscription(_ context.Context, subName types.FQDN) {
 	r.state.Queues.Store(subName, memory.NewSubscriptionQueue())
 }
 
 // DropSubscription removes the queue for a subscription.
-func (r *PendingMessageRepository) DropSubscription(subName types.FQDN) {
+func (r *PendingMessageRepository) DropSubscription(_ context.Context, subName types.FQDN) {
 	r.state.Queues.Delete(subName)
 }
 
 // Enqueue adds pending messages to a subscription's channel.
-func (r *PendingMessageRepository) Enqueue(subName types.FQDN, pms []*entities.PendingMessage) error {
+func (r *PendingMessageRepository) Enqueue(_ context.Context, subName types.FQDN, pms []*entities.PendingMessage) error {
 	q, ok := r.queue(subName)
 	if !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")
@@ -54,7 +55,7 @@ func (r *PendingMessageRepository) Enqueue(subName types.FQDN, pms []*entities.P
 
 // Pull returns up to max unleased messages, respecting ordering keys when ordered is true.
 // Expired leases are requeued first; returned messages are moved to in-flight with the given deadline.
-func (r *PendingMessageRepository) Pull(subName types.FQDN, max int, ackDeadline time.Duration, ordered bool) ([]*entities.PendingMessage, error) {
+func (r *PendingMessageRepository) Pull(_ context.Context, subName types.FQDN, max int, ackDeadline time.Duration, ordered bool) ([]*entities.PendingMessage, error) {
 	q, ok := r.queue(subName)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")
@@ -116,7 +117,7 @@ func (r *PendingMessageRepository) Pull(subName types.FQDN, max int, ackDeadline
 // ListAll returns every pending message — both queued (channel) and in-flight.
 // The channel is drained and immediately re-enqueued, so this must be called
 // while the UoW mutex is held to prevent interleaving with concurrent publishes.
-func (r *PendingMessageRepository) ListAll(subName types.FQDN) ([]*entities.PendingMessage, error) {
+func (r *PendingMessageRepository) ListAll(_ context.Context, subName types.FQDN) ([]*entities.PendingMessage, error) {
 	q, ok := r.queue(subName)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")
@@ -148,7 +149,7 @@ func (r *PendingMessageRepository) ListAll(subName types.FQDN) ([]*entities.Pend
 
 // ReplaceAll drains the channel, clears in-flight, and enqueues pms as the new queue.
 // Used by Seek operations to atomically reset a subscription's message set.
-func (r *PendingMessageRepository) ReplaceAll(subName types.FQDN, pms []*entities.PendingMessage) error {
+func (r *PendingMessageRepository) ReplaceAll(_ context.Context, subName types.FQDN, pms []*entities.PendingMessage) error {
 	q, ok := r.queue(subName)
 	if !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")
@@ -167,7 +168,7 @@ func (r *PendingMessageRepository) ReplaceAll(subName types.FQDN, pms []*entitie
 }
 
 // AcknowledgeByAckID removes the given messages from in-flight.
-func (r *PendingMessageRepository) AcknowledgeByAckID(subName types.FQDN, ackIDs []string) error {
+func (r *PendingMessageRepository) AcknowledgeByAckID(_ context.Context, subName types.FQDN, ackIDs []string) error {
 	q, ok := r.queue(subName)
 	if !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")
@@ -179,7 +180,7 @@ func (r *PendingMessageRepository) AcknowledgeByAckID(subName types.FQDN, ackIDs
 }
 
 // UpdateDeadline extends (or nacks with zero) the ack deadline for in-flight messages.
-func (r *PendingMessageRepository) UpdateDeadline(subName types.FQDN, ackIDs []string, deadline time.Duration) error {
+func (r *PendingMessageRepository) UpdateDeadline(_ context.Context, subName types.FQDN, ackIDs []string, deadline time.Duration) error {
 	q, ok := r.queue(subName)
 	if !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "subscription queue not found")

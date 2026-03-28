@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"context"
+
 	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/storage/mappers"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
@@ -16,18 +18,26 @@ func NewTopicRepository(state *memory.State) *TopicRepository {
 	return &TopicRepository{state: state}
 }
 
-func (r *TopicRepository) CreateTopic(topic *entities.Topic) error {
+func (r *TopicRepository) CreateTopic(_ context.Context, topic *entities.Topic) (*entities.Topic, error) {
 	model, err := mappers.TopicEntityToModel(topic)
 	if err != nil {
-		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
+		return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
 	}
-	if _, loaded := r.state.Topics.LoadOrStore(topic.Name(), model); loaded {
-		return types.NewPersistenceError(types.PersistenceAlreadyExists, "topic already exists")
+
+	loadedTopic, loaded := r.state.Topics.LoadOrStore(topic.Name(), model)
+
+	if loaded {
+		return nil, types.NewPersistenceError(types.PersistenceAlreadyExists, "topic already exists")
 	}
-	return nil
+
+	if loadedTopic, ok := loadedTopic.(*models.Topic); ok {
+		return mappers.TopicModelToEntity(loadedTopic)
+	}
+
+	return nil, types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", nil)
 }
 
-func (r *TopicRepository) GetTopic(name types.FQDN) (*entities.Topic, error) {
+func (r *TopicRepository) GetTopic(_ context.Context, name types.FQDN) (*entities.Topic, error) {
 	v, ok := r.state.Topics.Load(name)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
@@ -39,7 +49,7 @@ func (r *TopicRepository) GetTopic(name types.FQDN) (*entities.Topic, error) {
 	return entity, nil
 }
 
-func (r *TopicRepository) UpdateTopic(topic *entities.Topic) error {
+func (r *TopicRepository) UpdateTopic(_ context.Context, topic *entities.Topic) error {
 	model, err := mappers.TopicEntityToModel(topic)
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map topic", err)
@@ -51,7 +61,7 @@ func (r *TopicRepository) UpdateTopic(topic *entities.Topic) error {
 	return nil
 }
 
-func (r *TopicRepository) DeleteTopic(name types.FQDN) error {
+func (r *TopicRepository) DeleteTopic(_ context.Context, name types.FQDN) error {
 	if _, ok := r.state.Topics.Load(name); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "topic not found")
 	}
@@ -59,7 +69,7 @@ func (r *TopicRepository) DeleteTopic(name types.FQDN) error {
 	return nil
 }
 
-func (r *TopicRepository) ListTopics(project string) ([]*entities.Topic, error) {
+func (r *TopicRepository) ListTopics(_ context.Context, project string) ([]*entities.Topic, error) {
 	prefix := types.FQDN("projects/" + project + "/topics/")
 	if !prefix.IsValid() {
 		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")

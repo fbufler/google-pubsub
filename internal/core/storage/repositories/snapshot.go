@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"context"
+
 	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/storage/mappers"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
@@ -16,7 +18,7 @@ func NewSnapshotRepository(state *memory.State) *SnapshotRepository {
 	return &SnapshotRepository{state: state}
 }
 
-func (s *SnapshotRepository) CreateSnapshot(snapshot *entities.Snapshot) error {
+func (s *SnapshotRepository) CreateSnapshot(_ context.Context, snapshot *entities.Snapshot) error {
 	model, err := mappers.SnapshotEntityToModel(snapshot)
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
@@ -27,7 +29,7 @@ func (s *SnapshotRepository) CreateSnapshot(snapshot *entities.Snapshot) error {
 	return nil
 }
 
-func (s *SnapshotRepository) GetSnapshot(name types.FQDN) (*entities.Snapshot, error) {
+func (s *SnapshotRepository) GetSnapshot(_ context.Context, name types.FQDN) (*entities.Snapshot, error) {
 	v, ok := s.state.Snapshots.Load(name)
 	if !ok {
 		return nil, types.NewPersistenceError(types.PersistenceNotFound, "snapshot not found")
@@ -39,7 +41,7 @@ func (s *SnapshotRepository) GetSnapshot(name types.FQDN) (*entities.Snapshot, e
 	return entity, nil
 }
 
-func (s *SnapshotRepository) UpdateSnapshot(snapshot *entities.Snapshot) error {
+func (s *SnapshotRepository) UpdateSnapshot(_ context.Context, snapshot *entities.Snapshot) error {
 	model, err := mappers.SnapshotEntityToModel(snapshot)
 	if err != nil {
 		return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map snapshot", err)
@@ -51,7 +53,7 @@ func (s *SnapshotRepository) UpdateSnapshot(snapshot *entities.Snapshot) error {
 	return nil
 }
 
-func (s *SnapshotRepository) DeleteSnapshot(name types.FQDN) error {
+func (s *SnapshotRepository) DeleteSnapshot(_ context.Context, name types.FQDN) error {
 	if _, ok := s.state.Snapshots.Load(name); !ok {
 		return types.NewPersistenceError(types.PersistenceNotFound, "snapshot not found")
 	}
@@ -59,7 +61,7 @@ func (s *SnapshotRepository) DeleteSnapshot(name types.FQDN) error {
 	return nil
 }
 
-func (s *SnapshotRepository) ListSnapshots(project string) ([]*entities.Snapshot, error) {
+func (s *SnapshotRepository) ListSnapshots(_ context.Context, project string) ([]*entities.Snapshot, error) {
 	prefix := types.FQDN("projects/" + project + "/snapshots/")
 	if !prefix.IsValid() {
 		return nil, types.NewPersistenceError(types.PersistencePreconditionFailed, "invalid project name")
@@ -85,7 +87,7 @@ func (s *SnapshotRepository) ListSnapshots(project string) ([]*entities.Snapshot
 	return out, nil
 }
 
-func (s *SnapshotRepository) ListSnapshotsByTopic(topicName types.FQDN) ([]*entities.Snapshot, error) {
+func (s *SnapshotRepository) ListSnapshotsByTopic(_ context.Context, topicName types.FQDN) ([]*entities.Snapshot, error) {
 	var raw []*models.Snapshot
 	s.state.Snapshots.Range(func(_, v any) bool {
 		snap := v.(*models.Snapshot)

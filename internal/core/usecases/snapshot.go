@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"context"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -30,8 +31,8 @@ func NewSnapshotUsecase(
 }
 
 // CreateSnapshot captures the current unacked message state of a subscription.
-func (s *SnapshotUsecase) CreateSnapshot(snap *entities.Snapshot) error {
-	sub, err := s.subscriptions.GetSubscription(snap.SubscriptionName())
+func (s *SnapshotUsecase) CreateSnapshot(ctx context.Context, snap *entities.Snapshot) error {
+	sub, err := s.subscriptions.GetSubscription(ctx, snap.SubscriptionName())
 	if err != nil {
 		return fromPersistence(err)
 	}
@@ -43,7 +44,7 @@ func (s *SnapshotUsecase) CreateSnapshot(snap *entities.Snapshot) error {
 	}
 	snap.SetCreatedAt(time.Now())
 
-	pending, err := s.pendingMessages.ListAll(snap.SubscriptionName())
+	pending, err := s.pendingMessages.ListAll(ctx, snap.SubscriptionName())
 	if err != nil {
 		return fromPersistence(err)
 	}
@@ -53,36 +54,36 @@ func (s *SnapshotUsecase) CreateSnapshot(snap *entities.Snapshot) error {
 	}
 	snap.SetUnackedMsgIDs(unackedMsgIDs)
 
-	if err := s.snapshots.CreateSnapshot(snap); err != nil {
+	if err := s.snapshots.CreateSnapshot(ctx, snap); err != nil {
 		return fromPersistence(err)
 	}
 	return nil
 }
 
-func (s *SnapshotUsecase) GetSnapshot(name types.FQDN) (*entities.Snapshot, error) {
-	snap, err := s.snapshots.GetSnapshot(name)
+func (s *SnapshotUsecase) GetSnapshot(ctx context.Context, name types.FQDN) (*entities.Snapshot, error) {
+	snap, err := s.snapshots.GetSnapshot(ctx, name)
 	if err != nil {
 		return nil, fromPersistence(err)
 	}
 	return snap, nil
 }
 
-func (s *SnapshotUsecase) UpdateSnapshot(snap *entities.Snapshot) error {
-	if err := s.snapshots.UpdateSnapshot(snap); err != nil {
+func (s *SnapshotUsecase) UpdateSnapshot(ctx context.Context, snap *entities.Snapshot) error {
+	if err := s.snapshots.UpdateSnapshot(ctx, snap); err != nil {
 		return fromPersistence(err)
 	}
 	return nil
 }
 
-func (s *SnapshotUsecase) DeleteSnapshot(name types.FQDN) error {
-	if err := s.snapshots.DeleteSnapshot(name); err != nil {
+func (s *SnapshotUsecase) DeleteSnapshot(ctx context.Context, name types.FQDN) error {
+	if err := s.snapshots.DeleteSnapshot(ctx, name); err != nil {
 		return fromPersistence(err)
 	}
 	return nil
 }
 
-func (s *SnapshotUsecase) ListSnapshots(project string) ([]*entities.Snapshot, error) {
-	snaps, err := s.snapshots.ListSnapshots(project)
+func (s *SnapshotUsecase) ListSnapshots(ctx context.Context, project string) ([]*entities.Snapshot, error) {
+	snaps, err := s.snapshots.ListSnapshots(ctx, project)
 	if err != nil {
 		return nil, fromPersistence(err)
 	}
@@ -91,27 +92,26 @@ func (s *SnapshotUsecase) ListSnapshots(project string) ([]*entities.Snapshot, e
 
 // SeekToTime replaces the subscription's pending queue with all messages
 // published at or after time t.
-func (s *SnapshotUsecase) SeekToTime(subName types.FQDN, t time.Time) error {
-	sub, err := s.subscriptions.GetSubscription(subName)
+func (s *SnapshotUsecase) SeekToTime(ctx context.Context, subName types.FQDN, t time.Time) error {
+	sub, err := s.subscriptions.GetSubscription(ctx, subName)
 	if err != nil {
 		return fromPersistence(err)
 	}
-	msgs, err := s.messages.ListMessagesByTopic(sub.TopicName())
+	msgs, err := s.messages.ListMessagesByTopic(ctx, sub.TopicName())
 	if err != nil {
 		return fromPersistence(err)
 	}
 	var newPending []*entities.PendingMessage
 	for _, m := range msgs {
 		if !m.PublishTime().Before(t) {
-			pm := new(entities.PendingMessage)
-			_ = pm.SetMessage(m)
-			_ = pm.SetAckID(newAckID())
-			_ = pm.SetAckDeadline(time.Time{})
-			_ = pm.SetSubscription(subName)
+			pm, err := newPendingMessage(m, subName)
+			if err != nil {
+				return err
+			}
 			newPending = append(newPending, pm)
 		}
 	}
-	if err := s.pendingMessages.ReplaceAll(subName, newPending); err != nil {
+	if err := s.pendingMessages.ReplaceAll(ctx, subName, newPending); err != nil {
 		return fromPersistence(err)
 	}
 	return nil
@@ -119,16 +119,16 @@ func (s *SnapshotUsecase) SeekToTime(subName types.FQDN, t time.Time) error {
 
 // SeekToSnapshot replaces the subscription's pending queue with the messages
 // that were unacked at the time the snapshot was created.
-func (s *SnapshotUsecase) SeekToSnapshot(subName types.FQDN, snapName types.FQDN) error {
-	snap, err := s.snapshots.GetSnapshot(snapName)
+func (s *SnapshotUsecase) SeekToSnapshot(ctx context.Context, subName types.FQDN, snapName types.FQDN) error {
+	snap, err := s.snapshots.GetSnapshot(ctx, snapName)
 	if err != nil {
 		return fromPersistence(err)
 	}
-	sub, err := s.subscriptions.GetSubscription(subName)
+	sub, err := s.subscriptions.GetSubscription(ctx, subName)
 	if err != nil {
 		return fromPersistence(err)
 	}
-	msgs, err := s.messages.ListMessagesByTopic(sub.TopicName())
+	msgs, err := s.messages.ListMessagesByTopic(ctx, sub.TopicName())
 	if err != nil {
 		return fromPersistence(err)
 	}
@@ -140,16 +140,33 @@ func (s *SnapshotUsecase) SeekToSnapshot(subName types.FQDN, snapName types.FQDN
 	var newPending []*entities.PendingMessage
 	for _, m := range msgs {
 		if unackedSet[m.ID()] || !m.PublishTime().Before(snapTime) {
-			pm := new(entities.PendingMessage)
-			_ = pm.SetMessage(m)
-			_ = pm.SetAckID(newAckID())
-			_ = pm.SetAckDeadline(time.Time{})
-			_ = pm.SetSubscription(subName)
+			pm, err := newPendingMessage(m, subName)
+			if err != nil {
+				return err
+			}
 			newPending = append(newPending, pm)
 		}
 	}
-	if err := s.pendingMessages.ReplaceAll(subName, newPending); err != nil {
+	if err := s.pendingMessages.ReplaceAll(ctx, subName, newPending); err != nil {
 		return fromPersistence(err)
 	}
 	return nil
+}
+
+// newPendingMessage creates a PendingMessage for the given message and subscription.
+func newPendingMessage(m *entities.Message, subName types.FQDN) (*entities.PendingMessage, error) {
+	pm := new(entities.PendingMessage)
+	if err := pm.SetMessage(m); err != nil {
+		return nil, types.WrapUsecaseError(types.UsecaseInternal, "set pending message", err)
+	}
+	if err := pm.SetAckID(newAckID()); err != nil {
+		return nil, types.WrapUsecaseError(types.UsecaseInternal, "set ack id", err)
+	}
+	if err := pm.SetAckDeadline(time.Time{}); err != nil {
+		return nil, types.WrapUsecaseError(types.UsecaseInternal, "set ack deadline", err)
+	}
+	if err := pm.SetSubscription(subName); err != nil {
+		return nil, types.WrapUsecaseError(types.UsecaseInternal, "set subscription", err)
+	}
+	return pm, nil
 }
