@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -9,20 +10,29 @@ import (
 	"github.com/fbufler/google-pubsub/internal/core/types"
 )
 
+type dispatcherEntry struct {
+	dispatcher *subscriptionDispatcher
+	cancel     context.CancelFunc
+}
+
 type SubscriberUsecase struct {
+	ctx             context.Context
 	topics          *repositories.TopicRepository
 	subscriptions   *repositories.SubscriptionRepository
 	pendingMessages *repositories.PendingMessageRepository
 	messages        *repositories.MessageRepository
+	dispatchers     sync.Map // types.FQDN → *dispatcherEntry
 }
 
 func NewSubscriber(
+	ctx context.Context,
 	topics *repositories.TopicRepository,
 	subscriptions *repositories.SubscriptionRepository,
 	pendingMessages *repositories.PendingMessageRepository,
 	messages *repositories.MessageRepository,
 ) *SubscriberUsecase {
 	return &SubscriberUsecase{
+		ctx:             ctx,
 		topics:          topics,
 		subscriptions:   subscriptions,
 		pendingMessages: pendingMessages,
@@ -41,7 +51,15 @@ func (s *SubscriberUsecase) CreateSubscription(ctx context.Context, sub *entitie
 		return fromPersistence(err)
 	}
 	s.pendingMessages.InitSubscription(ctx, sub.Name())
+	s.startDispatcher(sub.Name())
 	return nil
+}
+
+func (s *SubscriberUsecase) startDispatcher(subName types.FQDN) {
+	dispCtx, cancel := context.WithCancel(s.ctx)
+	d := newSubscriptionDispatcher(subName, s.subscriptions, s.pendingMessages)
+	s.dispatchers.Store(subName, &dispatcherEntry{dispatcher: d, cancel: cancel})
+	go d.run(dispCtx)
 }
 
 func (s *SubscriberUsecase) GetSubscription(ctx context.Context, name types.FQDN) (*entities.Subscription, error) {
@@ -60,6 +78,9 @@ func (s *SubscriberUsecase) UpdateSubscription(ctx context.Context, sub *entitie
 }
 
 func (s *SubscriberUsecase) DeleteSubscription(ctx context.Context, name types.FQDN) error {
+	if v, ok := s.dispatchers.LoadAndDelete(name); ok {
+		v.(*dispatcherEntry).cancel()
+	}
 	if err := s.subscriptions.DeleteSubscription(ctx, name); err != nil {
 		return fromPersistence(err)
 	}
@@ -87,6 +108,19 @@ func (s *SubscriberUsecase) ModifyPushConfig(ctx context.Context, subName types.
 		return fromPersistence(err)
 	}
 	return nil
+}
+
+// StreamMessages registers the caller as a streaming consumer for subName.
+// Messages are pushed to the returned channel as soon as they are enqueued.
+// The caller must invoke the returned cancel func when done.
+func (s *SubscriberUsecase) StreamMessages(ctx context.Context, subName types.FQDN) (<-chan []*entities.PendingMessage, func(), error) {
+	v, ok := s.dispatchers.Load(subName)
+	if !ok {
+		return nil, nil, types.NewUsecaseError(types.UsecaseNotFound, "subscription not found")
+	}
+	ch := make(chan []*entities.PendingMessage, 16)
+	cancel := v.(*dispatcherEntry).dispatcher.register(ch)
+	return ch, cancel, nil
 }
 
 // Pull returns up to maxMessages pending messages for subName.

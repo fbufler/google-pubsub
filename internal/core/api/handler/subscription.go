@@ -12,6 +12,7 @@ import (
 
 	"github.com/fbufler/google-pubsub/internal/core/api/mapper"
 	"github.com/fbufler/google-pubsub/internal/core/api/payload"
+	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/types"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
 )
@@ -269,6 +270,12 @@ func NewStreamingPull(_ context.Context, uc *usecases.SubscriberUsecase) func(co
 			return err
 		}
 
+		msgCh, unregister, err := uc.StreamMessages(ctx, subName)
+		if err != nil {
+			return toConnectError(err)
+		}
+		defer unregister()
+
 		incomingCh := make(chan *pubsubpb.StreamingPullRequest, 64)
 		errCh := make(chan error, 1)
 
@@ -287,9 +294,6 @@ func NewStreamingPull(_ context.Context, uc *usecases.SubscriberUsecase) func(co
 			}
 		}()
 
-		ticker := time.NewTicker(50 * time.Millisecond)
-		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -303,11 +307,7 @@ func NewStreamingPull(_ context.Context, uc *usecases.SubscriberUsecase) func(co
 					return err
 				}
 
-			case <-ticker.C:
-				msgs, err := uc.Pull(ctx, subName, 100)
-				if err != nil {
-					return toConnectError(err)
-				}
+			case msgs := <-msgCh:
 				msgs, err = uc.HandleDeadLetters(ctx, subName, msgs)
 				if err != nil {
 					return toConnectError(err)
@@ -315,16 +315,20 @@ func NewStreamingPull(_ context.Context, uc *usecases.SubscriberUsecase) func(co
 				if len(msgs) == 0 {
 					continue
 				}
-				resp := &pubsubpb.StreamingPullResponse{}
-				for _, pm := range msgs {
-					resp.ReceivedMessages = append(resp.ReceivedMessages, mapper.PendingMessageToProto(pm))
-				}
-				if err := stream.Send(resp); err != nil {
+				if err := sendMessages(stream, msgs); err != nil {
 					return err
 				}
 			}
 		}
 	}
+}
+
+func sendMessages(stream *connect.BidiStream[pubsubpb.StreamingPullRequest, pubsubpb.StreamingPullResponse], msgs []*entities.PendingMessage) error {
+	resp := &pubsubpb.StreamingPullResponse{}
+	for _, pm := range msgs {
+		resp.ReceivedMessages = append(resp.ReceivedMessages, mapper.PendingMessageToProto(pm))
+	}
+	return stream.Send(resp)
 }
 
 func processStreamReq(ctx context.Context, uc *usecases.SubscriberUsecase, subName types.FQDN, req *pubsubpb.StreamingPullRequest) error {

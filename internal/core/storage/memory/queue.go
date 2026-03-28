@@ -14,10 +14,14 @@ const QueueSize = 10_000
 type SubscriptionQueue struct {
 	ch       chan *models.PendingMessage
 	inFlight sync.Map // ackID (string) → *models.PendingMessage
+	notify   chan struct{}
 }
 
 func NewSubscriptionQueue() *SubscriptionQueue {
-	return &SubscriptionQueue{ch: make(chan *models.PendingMessage, QueueSize)}
+	return &SubscriptionQueue{
+		ch:     make(chan *models.PendingMessage, QueueSize),
+		notify: make(chan struct{}, 1),
+	}
 }
 
 // Enqueue adds a message to the pending channel.
@@ -27,6 +31,15 @@ func (q *SubscriptionQueue) Enqueue(pm *models.PendingMessage) {
 	case q.ch <- pm:
 	default:
 	}
+	select {
+	case q.notify <- struct{}{}:
+	default:
+	}
+}
+
+// Notify returns the channel that is signalled whenever a message is enqueued.
+func (q *SubscriptionQueue) Notify() <-chan struct{} {
+	return q.notify
 }
 
 // TryDequeue removes and returns one pending message, or nil if the channel is empty.

@@ -32,6 +32,16 @@ func (r *PendingMessageRepository) InitSubscription(_ context.Context, subName t
 	r.state.Queues.Store(subName, memory.NewSubscriptionQueue())
 }
 
+// Watch returns the notification channel for a subscription's queue.
+// The channel receives a signal whenever a message is enqueued.
+func (r *PendingMessageRepository) Watch(subName types.FQDN) (<-chan struct{}, bool) {
+	q, ok := r.queue(subName)
+	if !ok {
+		return nil, false
+	}
+	return q.Notify(), true
+}
+
 // DropSubscription removes the queue for a subscription.
 func (r *PendingMessageRepository) DropSubscription(_ context.Context, subName types.FQDN) {
 	r.state.Queues.Delete(subName)
