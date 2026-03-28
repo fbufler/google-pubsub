@@ -22,11 +22,11 @@ import (
 
 	pubsubpb "github.com/fbufler/google-pubsub/gen/google/pubsub/v1"
 	"github.com/fbufler/google-pubsub/gen/google/pubsub/v1/pubsubpbconnect"
-	"github.com/fbufler/google-pubsub/internal/core/api/handler"
-	pubsubinit "github.com/fbufler/google-pubsub/internal/init"
+	"github.com/fbufler/google-pubsub/internal/api/handler"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
 	"github.com/fbufler/google-pubsub/internal/core/storage/repositories"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
+	pubsubinit "github.com/fbufler/google-pubsub/internal/init"
 	"github.com/fbufler/google-pubsub/internal/telemetry"
 )
 

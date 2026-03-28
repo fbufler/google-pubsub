@@ -9,8 +9,8 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/fbufler/google-pubsub/internal/core/api/mapper"
-	"github.com/fbufler/google-pubsub/internal/core/api/payload"
+	"github.com/fbufler/google-pubsub/internal/api/mapper"
+	"github.com/fbufler/google-pubsub/internal/api/payload"
 	"github.com/fbufler/google-pubsub/internal/core/entities"
 	"github.com/fbufler/google-pubsub/internal/core/types"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
