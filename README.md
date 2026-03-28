@@ -8,9 +8,9 @@ The official Google emulator is a Java application packaged in a ~600 MB Docker 
 | | Ours | Official (Java) |
 |---|---|---|
 | **Image size** | ![image size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/image-size-ours.json) | ![official image](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/image-size-official.json) |
-| **Publish single** | ![publish single](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-single.json) | — |
-| **Publish batch/100** | ![publish batch](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-batch.json) | — |
-| **E2E latency** | ![e2e latency](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-e2e.json) | — |
+| **Publish single** | ![publish single](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-single.json) | ![official publish single](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-single-official.json) |
+| **Publish batch/100** | ![publish batch](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-batch.json) | ![official publish batch](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-publish-batch-official.json) |
+| **E2E latency** | ![e2e latency](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-e2e.json) | ![official e2e latency](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/bench-e2e-official.json) |
 | **Coverage** | ![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fbufler/google-pubsub/badges/coverage.json) | — |
 
 > Badge colors: 🟢 green = on par or faster than official · 🟡 yellow = up to 5× slower · 🔴 red = >5× slower

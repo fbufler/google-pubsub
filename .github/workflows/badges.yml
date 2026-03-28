@@ -172,15 +172,30 @@ jobs:
                         fmt_ns(e.get("OUR_SINGLE")),
                         bench_color(e.get("OUR_SINGLE"), e.get("OFF_SINGLE")))
 
+                  write("bench-publish-single-official",
+                        "publish (single)",
+                        fmt_ns(e.get("OFF_SINGLE")),
+                        "lightgrey")
+
                   write("bench-publish-batch",
                         "publish (batch/100)",
                         fmt_ns(e.get("OUR_BATCH")),
                         bench_color(e.get("OUR_BATCH"), e.get("OFF_BATCH")))
 
+                  write("bench-publish-batch-official",
+                        "publish (batch/100)",
+                        fmt_ns(e.get("OFF_BATCH")),
+                        "lightgrey")
+
                   write("bench-e2e",
                         "e2e latency",
                         fmt_ns(e.get("OUR_E2E")),
                         bench_color(e.get("OUR_E2E"), e.get("OFF_E2E")))
+
+                  write("bench-e2e-official",
+                        "e2e latency",
+                        fmt_ns(e.get("OFF_E2E")),
+                        "lightgrey")
 
                   write("coverage",
                         "coverage",
