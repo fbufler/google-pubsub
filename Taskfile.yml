@@ -74,6 +74,51 @@ tasks:
             - task: test:integration:official
             - task: test:integration:ours
 
+    # TODO: Should run directly in the container and we need to clean this up
+    test:coverage:
+        desc: Build a coverage-instrumented binary, run integration tests against it, and report coverage
+        cmds:
+            - go build -cover -coverpkg=./... -o bin/emulator-cov ./cmd/server
+            - |
+                rm -rf coverdata && mkdir -p coverdata
+                GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn \
+                  ./bin/emulator-cov &
+                COV_PID=$!
+                for i in $(seq 1 30); do
+                  curl -sf http://localhost:8087/healthz >/dev/null 2>&1 && break
+                  sleep 0.5
+                done
+                PUBSUB_EMULATOR_HOST=localhost:8087 PUBSUB_PROJECT_ID=test-project \
+                  go test ./test/integration/... -tags integration -timeout 120s -count=1
+                TEST_EXIT=$?
+                pkill -TERM -f './bin/emulator-cov' 2>/dev/null || true
+                for i in $(seq 1 20); do
+                  pgrep -f './bin/emulator-cov' >/dev/null 2>&1 || break
+                  sleep 0.5
+                done
+                exit $TEST_EXIT
+            - go tool covdata textfmt -i=./coverdata -o=coverage.txt
+            - go tool cover -func=coverage.txt | tail -1
+            - go tool cover -html=coverage.txt -o=coverage.html
+            - echo "HTML report written to coverage.html"
+
+    # --- Benchmarks ---
+    bench:official:
+        desc: Run benchmarks against the official Google PubSub emulator
+        cmds:
+            - docker compose up -d real-emulator
+            - defer: docker compose stop real-emulator
+            - PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project go test ./test/benchmark/... -tags benchmark -bench=. -benchmem -benchtime=5s -count=1 -timeout 180s
+
+    bench:ours:
+        desc: Run benchmarks against our emulator
+        deps:
+            - docker:build
+        cmds:
+            - docker compose up -d our-emulator
+            - defer: docker compose stop our-emulator
+            - PUBSUB_EMULATOR_HOST=localhost:8086 PUBSUB_PROJECT_ID=test-project go test ./test/benchmark/... -tags benchmark -bench=. -benchmem -benchtime=5s -count=1 -timeout 180s
+
     # --- Tracing ---
     trace:up:
         desc: Start Jaeger and the emulator with tracing enabled (UI at http://localhost:16686)

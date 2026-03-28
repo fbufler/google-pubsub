@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
@@ -129,9 +133,30 @@ func main() {
 
 	mux.Handle("/", gwmux)
 
-	slog.Info("starting pubsub emulator", "addr", cfg.ListenAddr)
-	if err := http.ListenAndServe(cfg.ListenAddr, h2c.NewHandler(mux, &http2.Server{})); err != nil {
-		slog.Error("server error", "err", err)
+	// --- Start server ---
+	srv := &http.Server{
+		Addr:    cfg.ListenAddr,
+		Handler: h2c.NewHandler(mux, &http2.Server{}),
+	}
+
+	go func() {
+		slog.Info("starting pubsub emulator", "addr", cfg.ListenAddr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server error", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	// --- Graceful shutdown on SIGTERM / SIGINT ---
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+
+	slog.Info("shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("shutdown error", "err", err)
 		os.Exit(1)
 	}
 }

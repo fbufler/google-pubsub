@@ -1,0 +1,220 @@
+name: Badges
+
+on:
+    push:
+        branches: [main]
+    schedule:
+        - cron: "0 4 * * 1" # weekly, Monday 04:00 UTC
+    workflow_dispatch:
+
+jobs:
+    measure:
+        name: Measure & Publish Badges
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - uses: jdx/mise-action@v2
+              with:
+                  cache: true
+
+            # ── Benchmarks: official emulator ─────────────────────────────
+
+            - name: Benchmark — official emulator
+              id: bench_official
+              run: |
+                  docker compose up -d real-emulator
+                  for i in $(seq 1 30); do
+                    curl -sf http://localhost:8085 >/dev/null 2>&1 && break
+                    sleep 1
+                  done
+                  PUBSUB_EMULATOR_HOST=localhost:8085 PUBSUB_PROJECT_ID=test-project \
+                    go test ./test/benchmark/... -tags benchmark \
+                      -bench=. -benchmem -benchtime=5s -count=1 -timeout 180s \
+                      -skip "TestReflection|TestHealthEndpoints" \
+                    | tee bench_official.txt
+                  docker compose stop real-emulator
+
+                  echo "single_nsop=$(awk '/BenchmarkPublishSingle/{print $3; exit}' bench_official.txt)" >> "$GITHUB_OUTPUT"
+                  echo "batch_nsop=$(awk '/BenchmarkPublishBatch100/{print $3; exit}' bench_official.txt)" >> "$GITHUB_OUTPUT"
+                  echo "e2e_nsop=$(awk '/BenchmarkEndToEnd/{print $3; exit}' bench_official.txt)"         >> "$GITHUB_OUTPUT"
+
+            # ── Build our image ────────────────────────────────────────────
+
+            - name: Build our Docker image
+              run: task docker:build
+
+            # ── Benchmarks: our emulator ───────────────────────────────────
+
+            - name: Benchmark — our emulator
+              id: bench_ours
+              run: |
+                  docker compose up -d our-emulator
+                  for i in $(seq 1 30); do
+                    curl -sf http://localhost:8086/healthz >/dev/null 2>&1 && break
+                    sleep 1
+                  done
+                  PUBSUB_EMULATOR_HOST=localhost:8086 PUBSUB_PROJECT_ID=test-project \
+                    go test ./test/benchmark/... -tags benchmark \
+                      -bench=. -benchmem -benchtime=5s -count=1 -timeout 180s \
+                    | tee bench_ours.txt
+                  docker compose stop our-emulator
+
+                  echo "single_nsop=$(awk '/BenchmarkPublishSingle/{print $3; exit}' bench_ours.txt)" >> "$GITHUB_OUTPUT"
+                  echo "batch_nsop=$(awk '/BenchmarkPublishBatch100/{print $3; exit}' bench_ours.txt)" >> "$GITHUB_OUTPUT"
+                  echo "e2e_nsop=$(awk '/BenchmarkEndToEnd/{print $3; exit}' bench_ours.txt)"         >> "$GITHUB_OUTPUT"
+
+            # ── Coverage ──────────────────────────────────────────────────
+
+            - name: Build coverage-instrumented binary
+              run: |
+                  go build -cover -coverpkg=./... -o bin/emulator-cov ./cmd/server
+
+            - name: Run integration tests against covered binary
+              id: coverage
+              run: |
+                  mkdir -p coverdata
+                  GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn \
+                    ./bin/emulator-cov &
+                  COV_PID=$!
+
+                  for i in $(seq 1 30); do
+                    curl -sf http://localhost:8087/healthz >/dev/null 2>&1 && break
+                    sleep 1
+                  done
+
+                  PUBSUB_EMULATOR_HOST=localhost:8087 PUBSUB_PROJECT_ID=test-project \
+                    go test ./test/integration/... -tags integration \
+                      -timeout 120s -count=1
+                  TEST_EXIT=$?
+
+                  kill $COV_PID 2>/dev/null
+                  wait $COV_PID 2>/dev/null
+
+                  [ $TEST_EXIT -eq 0 ] || exit $TEST_EXIT
+
+                  go tool covdata textfmt -i=./coverdata -o=coverage.txt
+                  PCT=$(go tool cover -func=coverage.txt | awk '/^total:/{print $3}')
+                  echo "pct=${PCT}" >> "$GITHUB_OUTPUT"
+
+            # ── Docker image sizes ─────────────────────────────────────────
+
+            - name: Measure image sizes
+              id: sizes
+              run: |
+                  OUR_BYTES=$(docker image inspect google-pubsub-emulator:local --format='{{.Size}}')
+                  OUR_MB=$(python3 -c "print(f'{$OUR_BYTES/1024/1024:.1f} MB')")
+
+                  docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators --quiet
+                  OFF_BYTES=$(docker image inspect gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators --format='{{.Size}}')
+                  OFF_MB=$(python3 -c "print(f'{$OFF_BYTES/1024/1024:.0f} MB')")
+
+                  echo "ours=${OUR_MB}"       >> "$GITHUB_OUTPUT"
+                  echo "official=${OFF_MB}"   >> "$GITHUB_OUTPUT"
+
+            # ── Generate badge JSON files ──────────────────────────────────
+
+            - name: Generate shields.io endpoint JSON
+              env:
+                  OFF_SINGLE: ${{ steps.bench_official.outputs.single_nsop }}
+                  OFF_BATCH:  ${{ steps.bench_official.outputs.batch_nsop }}
+                  OFF_E2E:    ${{ steps.bench_official.outputs.e2e_nsop }}
+                  OUR_SINGLE: ${{ steps.bench_ours.outputs.single_nsop }}
+                  OUR_BATCH:  ${{ steps.bench_ours.outputs.batch_nsop }}
+                  OUR_E2E:    ${{ steps.bench_ours.outputs.e2e_nsop }}
+                  COVERAGE:   ${{ steps.coverage.outputs.pct }}
+                  IMG_OURS:   ${{ steps.sizes.outputs.ours }}
+                  IMG_OFF:    ${{ steps.sizes.outputs.official }}
+              run: |
+                  mkdir -p badges
+                  python3 - <<'EOF'
+                  import os, json, re
+
+                  def fmt_ns(ns_str):
+                      if not ns_str: return "N/A"
+                      ns = int(ns_str)
+                      if ns < 1_000:       return f"{ns} ns"
+                      if ns < 1_000_000:   return f"{ns/1_000:.2f} µs"
+                      return f"{ns/1_000_000:.2f} ms"
+
+                  def bench_color(ours_str, off_str):
+                      if not ours_str or not off_str: return "lightgrey"
+                      ratio = int(ours_str) / int(off_str)
+                      if ratio <= 1.0:  return "brightgreen"
+                      if ratio <= 2.0:  return "green"
+                      if ratio <= 5.0:  return "yellow"
+                      return "red"
+
+                  def cov_color(pct_str):
+                      if not pct_str: return "lightgrey"
+                      pct = float(re.sub(r"[^0-9.]", "", pct_str))
+                      if pct >= 70: return "brightgreen"
+                      if pct >= 50: return "yellow"
+                      return "red"
+
+                  def write(name, label, message, color):
+                      path = f"badges/{name}.json"
+                      with open(path, "w") as f:
+                          json.dump({"schemaVersion": 1, "label": label,
+                                     "message": message, "color": color}, f)
+                      print(f"  {path}: {message} ({color})")
+
+                  e = os.environ
+                  print("Generating badge JSON files:")
+
+                  write("bench-publish-single",
+                        "publish (single)",
+                        fmt_ns(e.get("OUR_SINGLE")),
+                        bench_color(e.get("OUR_SINGLE"), e.get("OFF_SINGLE")))
+
+                  write("bench-publish-batch",
+                        "publish (batch/100)",
+                        fmt_ns(e.get("OUR_BATCH")),
+                        bench_color(e.get("OUR_BATCH"), e.get("OFF_BATCH")))
+
+                  write("bench-e2e",
+                        "e2e latency",
+                        fmt_ns(e.get("OUR_E2E")),
+                        bench_color(e.get("OUR_E2E"), e.get("OFF_E2E")))
+
+                  write("coverage",
+                        "coverage",
+                        e.get("COVERAGE", "N/A"),
+                        cov_color(e.get("COVERAGE")))
+
+                  write("image-size-ours",
+                        "image size",
+                        e.get("IMG_OURS", "N/A"),
+                        "blue")
+
+                  write("image-size-official",
+                        "official image",
+                        e.get("IMG_OFF", "N/A"),
+                        "lightgrey")
+                  EOF
+
+            # ── Publish to badges branch ───────────────────────────────────
+
+            - name: Push badge JSON to badges branch
+              run: |
+                  git config user.name  "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Capture badge files before switching branches
+                  WORK=$(mktemp -d)
+                  cp badges/*.json "$WORK/"
+
+                  # Build an orphan commit containing only the badge files
+                  git checkout --orphan badges-new
+                  git rm -rf . --quiet 2>/dev/null || true
+                  cp "$WORK"/*.json .
+                  git add *.json
+                  git commit -m "chore: update badge data [skip ci]"
+
+                  # Force-push — history on this branch is meaningless
+                  git push origin HEAD:badges --force

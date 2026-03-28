@@ -1,10 +1,14 @@
 # Binary output
 bin/
+server
 
 # Go test cache and coverage
 *.test
 *.out
 coverage.html
+coverage.txt
+covcounters*
+covmeta*
 
 # Environment files
 .env
