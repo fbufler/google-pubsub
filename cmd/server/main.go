@@ -21,12 +21,12 @@ import (
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
 	"github.com/fbufler/google-pubsub/internal/core/storage/repositories"
 	"github.com/fbufler/google-pubsub/internal/core/usecases"
-	pubsubinit "github.com/fbufler/google-pubsub/internal/init"
+	"github.com/fbufler/google-pubsub/internal/bootstrap"
 	"github.com/fbufler/google-pubsub/internal/telemetry"
 )
 
 func main() {
-	cfg := pubsubinit.LoadServerConfig()
+	cfg := bootstrap.LoadServerConfig()
 
 	// --- Logging ---
 	if err := telemetry.SetupLogging(cfg.LogLevel, cfg.LogFormat); err != nil {
@@ -63,12 +63,12 @@ func main() {
 
 	// --- Optional init config: pre-create topics and subscriptions on startup ---
 	if initPath := cfg.InitConfigPath; initPath != "" {
-		initCfg, err := pubsubinit.Load(initPath)
+		initCfg, err := bootstrap.Load(initPath)
 		if err != nil {
 			slog.Error("failed to load init config", "path", initPath, "err", err)
 			os.Exit(1)
 		}
-		if err := pubsubinit.Apply(ctx, initCfg, topicUC, subUC); err != nil {
+		if err := bootstrap.Apply(ctx, initCfg, topicUC, subUC); err != nil {
 			slog.Error("failed to apply init config", "err", err)
 			os.Exit(1)
 		}

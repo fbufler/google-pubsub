@@ -1,5 +1,5 @@
-// Package init provides startup configuration for pre-creating PubSub resources.
-package init
+// Package bootstrap provides startup configuration for pre-creating PubSub resources.
+package bootstrap
 
 import (
 	"context"
@@ -111,8 +111,8 @@ func Apply(ctx context.Context, cfg *Config, topicUC *usecases.TopicUsecase, sub
 					return fmt.Errorf("invalid ack deadline for subscription %q: %w", subName, err)
 				}
 				if err := sub.SetRetainAckedMessages(sc.RetainAckedMessages); err != nil {
-				return fmt.Errorf("invalid retain_acked_messages for subscription %q: %w", subName, err)
-			}
+					return fmt.Errorf("invalid retain_acked_messages for subscription %q: %w", subName, err)
+				}
 				if err := sub.SetMessageRetention(7 * 24 * time.Hour); err != nil {
 					return fmt.Errorf("invalid message retention for subscription %q: %w", subName, err)
 				}
