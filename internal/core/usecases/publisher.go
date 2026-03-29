@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/fbufler/google-pubsub/internal/core/entities"
@@ -61,18 +62,40 @@ func (pub *PublisherUsecase) Publish(ctx context.Context, topicName types.FQDN, 
 		return nil, fromPersistence(err)
 	}
 
+	var (
+		mu      sync.Mutex
+		fanErr  error
+		wg      sync.WaitGroup
+	)
 	for _, sub := range subs {
-		pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
-		for _, m := range msgs {
-			pm, err := newPendingMessage(m, sub.Name())
-			if err != nil {
-				return nil, err
+		wg.Add(1)
+		go func(sub *entities.Subscription) {
+			defer wg.Done()
+			pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
+			for _, m := range msgs {
+				pm, err := newPendingMessage(m, sub.Name())
+				if err != nil {
+					mu.Lock()
+					if fanErr == nil {
+						fanErr = err
+					}
+					mu.Unlock()
+					return
+				}
+				pendingMsgs = append(pendingMsgs, pm)
 			}
-			pendingMsgs = append(pendingMsgs, pm)
-		}
-		if err := pub.pendingMessages.Enqueue(ctx, sub.Name(), pendingMsgs); err != nil {
-			return nil, fromPersistence(err)
-		}
+			if err := pub.pendingMessages.Enqueue(ctx, sub.Name(), pendingMsgs); err != nil {
+				mu.Lock()
+				if fanErr == nil {
+					fanErr = fromPersistence(err)
+				}
+				mu.Unlock()
+			}
+		}(sub)
+	}
+	wg.Wait()
+	if fanErr != nil {
+		return nil, fanErr
 	}
 
 	return ids, nil
