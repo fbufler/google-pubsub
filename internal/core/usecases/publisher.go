@@ -73,6 +73,9 @@ func (pub *PublisherUsecase) Publish(ctx context.Context, topicName types.FQDN, 
 			defer wg.Done()
 			pendingMsgs := make([]*entities.PendingMessage, 0, len(msgs))
 			for _, m := range msgs {
+				if !matchesFilter(sub.Filter(), m.Attributes()) {
+					continue
+				}
 				pm, err := newPendingMessage(m, sub.Name())
 				if err != nil {
 					mu.Lock()
