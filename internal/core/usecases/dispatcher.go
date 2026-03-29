@@ -79,6 +79,12 @@ func (d *subscriptionDispatcher) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			d.mu.Lock()
+			for _, ch := range d.consumers {
+				close(ch)
+			}
+			d.consumers = nil
+			d.mu.Unlock()
 			return
 		case <-notify:
 			d.deliver(ctx)

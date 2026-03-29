@@ -307,7 +307,10 @@ func NewStreamingPull(_ context.Context, uc *usecases.SubscriberUsecase) func(co
 					return err
 				}
 
-			case msgs := <-msgCh:
+			case msgs, ok := <-msgCh:
+				if !ok {
+					return connect.NewError(connect.CodeUnavailable, fmt.Errorf("subscription %s dispatcher stopped", subName))
+				}
 				msgs, err = uc.HandleDeadLetters(ctx, subName, msgs)
 				if err != nil {
 					return toConnectError(err)
