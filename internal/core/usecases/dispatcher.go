@@ -73,7 +73,7 @@ func (d *subscriptionDispatcher) run(ctx context.Context) {
 		return
 	}
 
-	requeue := time.NewTicker(5 * time.Second)
+	requeue := time.NewTicker(500 * time.Millisecond)
 	defer requeue.Stop()
 
 	for {
