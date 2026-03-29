@@ -25,16 +25,18 @@ func NewSubscriptionQueue() *SubscriptionQueue {
 }
 
 // Enqueue adds a message to the pending channel.
-// If the channel is full the message is dropped (emulator best-effort).
-func (q *SubscriptionQueue) Enqueue(pm *models.PendingMessage) {
+// Returns false if the channel is full (queue capacity exhausted).
+func (q *SubscriptionQueue) Enqueue(pm *models.PendingMessage) bool {
 	select {
 	case q.ch <- pm:
 	default:
+		return false
 	}
 	select {
 	case q.notify <- struct{}{}:
 	default:
 	}
+	return true
 }
 
 // Notify returns the channel that is signalled whenever a message is enqueued.

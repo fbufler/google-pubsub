@@ -48,6 +48,7 @@ func (r *PendingMessageRepository) DropSubscription(_ context.Context, subName t
 }
 
 // Enqueue adds pending messages to a subscription's channel.
+// Returns PersistenceResourceExhausted if the queue is full.
 func (r *PendingMessageRepository) Enqueue(_ context.Context, subName types.FQDN, pms []*entities.PendingMessage) error {
 	q, ok := r.queue(subName)
 	if !ok {
@@ -58,7 +59,9 @@ func (r *PendingMessageRepository) Enqueue(_ context.Context, subName types.FQDN
 		if err != nil {
 			return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map pending message", err)
 		}
-		q.Enqueue(model)
+		if !q.Enqueue(model) {
+			return types.NewPersistenceError(types.PersistenceResourceExhausted, "subscription queue is full")
+		}
 	}
 	return nil
 }
@@ -172,7 +175,9 @@ func (r *PendingMessageRepository) ReplaceAll(_ context.Context, subName types.F
 		if err != nil {
 			return types.WrapPersistenceError(types.PersistenceMappingFailed, "failed to map pending message", err)
 		}
-		q.Enqueue(model)
+		if !q.Enqueue(model) {
+			return types.NewPersistenceError(types.PersistenceResourceExhausted, "subscription queue is full")
+		}
 	}
 	return nil
 }

@@ -18,6 +18,8 @@ func fromPersistence(err error) *types.UsecaseError {
 			return types.WrapUsecaseError(types.UsecaseAlreadyExists, pe.Message, pe)
 		case types.PersistencePreconditionFailed:
 			return types.WrapUsecaseError(types.UsecaseInvalidArgument, pe.Message, pe)
+		case types.PersistenceResourceExhausted:
+			return types.WrapUsecaseError(types.UsecaseResourceExhausted, pe.Message, pe)
 		case types.PersistenceMappingFailed, types.PersistenceInternal:
 			return types.WrapUsecaseError(types.UsecaseInternal, pe.Message, pe)
 		}

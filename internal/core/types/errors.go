@@ -31,6 +31,7 @@ const (
 	PersistencePreconditionFailed                       // invalid input (e.g. bad project name)
 	PersistenceMappingFailed                            // model ↔ entity conversion failed
 	PersistenceInternal                                 // unexpected storage error
+	PersistenceResourceExhausted                        // capacity limit reached (e.g. queue full)
 )
 
 // PersistenceError is returned exclusively by repository methods.
@@ -70,6 +71,7 @@ const (
 	UsecaseInvalidArgument                      // invalid input
 	UsecasePreconditionFailed                   // operation not allowed in current state
 	UsecaseInternal                             // unexpected error
+	UsecaseResourceExhausted                    // capacity limit reached
 )
 
 // UsecaseError is returned exclusively by usecase methods.

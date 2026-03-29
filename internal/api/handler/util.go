@@ -32,6 +32,8 @@ func toConnectError(err error) error {
 			return connect.NewError(connect.CodeInvalidArgument, err)
 		case types.UsecasePreconditionFailed:
 			return connect.NewError(connect.CodeFailedPrecondition, err)
+		case types.UsecaseResourceExhausted:
+			return connect.NewError(connect.CodeResourceExhausted, err)
 		default:
 			return connect.NewError(connect.CodeInternal, err)
 		}
