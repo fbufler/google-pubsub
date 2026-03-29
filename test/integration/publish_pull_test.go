@@ -214,7 +214,6 @@ func TestPull_OrderingKey(t *testing.T) {
 	var got []string
 	close(gotCh) // Close so we can range over it
 	for msg := range gotCh {
-		got = append(got)
 		got = append(got, msg)
 	}
 

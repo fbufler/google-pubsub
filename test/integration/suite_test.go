@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	pubsubapiv1 "cloud.google.com/go/pubsub/apiv1"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -82,4 +83,60 @@ func mustCreateSubscription(t *testing.T, client *pubsub.Client, id string, topi
 	}
 	t.Cleanup(func() { _ = sub.Delete(context.Background()) })
 	return sub
+}
+
+// mustPublish publishes a single message and fails the test on error.
+func mustPublish(t *testing.T, topic *pubsub.Topic, data string) {
+	t.Helper()
+	if _, err := topic.Publish(context.Background(), &pubsub.Message{Data: []byte(data)}).Get(context.Background()); err != nil {
+		t.Fatalf("Publish %q: %v", data, err)
+	}
+}
+
+// fqSub returns the fully-qualified subscription resource name.
+func fqSub(sub *pubsub.Subscription) string {
+	return "projects/" + projectID() + "/subscriptions/" + sub.ID()
+}
+
+// fqTopic returns the fully-qualified topic resource name.
+func fqTopic(topic *pubsub.Topic) string {
+	return "projects/" + projectID() + "/topics/" + topic.ID()
+}
+
+// newRawSubscriberClient returns a low-level gRPC subscriber client connected to the emulator.
+func newRawSubscriberClient(t *testing.T) *pubsubapiv1.SubscriberClient {
+	t.Helper()
+	conn, err := grpc.NewClient(emulatorHost(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	client, err := pubsubapiv1.NewSubscriberClient(context.Background(),
+		option.WithGRPCConn(conn),
+		option.WithoutAuthentication(),
+	)
+	if err != nil {
+		t.Fatalf("NewSubscriberClient: %v", err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return client
+}
+
+// newRawPublisherClient returns a low-level gRPC publisher client connected to the emulator.
+func newRawPublisherClient(t *testing.T) *pubsubapiv1.PublisherClient {
+	t.Helper()
+	conn, err := grpc.NewClient(emulatorHost(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	client, err := pubsubapiv1.NewPublisherClient(context.Background(),
+		option.WithGRPCConn(conn),
+		option.WithoutAuthentication(),
+	)
+	if err != nil {
+		t.Fatalf("NewPublisherClient: %v", err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return client
 }

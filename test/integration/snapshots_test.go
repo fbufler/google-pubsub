@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"google.golang.org/api/iterator"
 )
 
 func TestSnapshot_CreateAndList(t *testing.T) {
@@ -188,5 +190,65 @@ func TestSnapshot_Delete(t *testing.T) {
 
 	if err := snap.Delete(ctx); err != nil {
 		t.Fatalf("Delete: %v", err)
+	}
+}
+
+func TestSnapshot_Get(t *testing.T) {
+	client := newClient(t)
+	raw := newRawSubscriberClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("snap-get-topic"))
+	sub := mustCreateSubscription(t, client, uniqueName("snap-get-sub"), topic)
+
+	snapID := uniqueName("snap-get")
+	if _, err := sub.CreateSnapshot(ctx, snapID); err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+	snapName := "projects/" + projectID() + "/snapshots/" + snapID
+	t.Cleanup(func() { _ = client.Snapshot(snapID).Delete(context.Background()) })
+
+	got, err := raw.GetSnapshot(ctx, &pubsubpb.GetSnapshotRequest{Snapshot: snapName})
+	if err != nil {
+		t.Fatalf("GetSnapshot: %v", err)
+	}
+	if got.Name != snapName {
+		t.Errorf("snapshot name = %q, want %q", got.Name, snapName)
+	}
+}
+
+
+func TestSnapshot_ListByTopic(t *testing.T) {
+	client := newClient(t)
+	raw := newRawPublisherClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("snap-lbt-topic"))
+	sub := mustCreateSubscription(t, client, uniqueName("snap-lbt-sub"), topic)
+
+	snapID := uniqueName("snap-lbt")
+	if _, err := sub.CreateSnapshot(ctx, snapID); err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+	snapName := "projects/" + projectID() + "/snapshots/" + snapID
+	t.Cleanup(func() { _ = client.Snapshot(snapID).Delete(context.Background()) })
+
+	it := raw.ListTopicSnapshots(ctx, &pubsubpb.ListTopicSnapshotsRequest{
+		Topic: fqTopic(topic),
+	})
+	found := false
+	for {
+		name, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ListTopicSnapshots.Next: %v", err)
+		}
+		if name == snapName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("snapshot %q not found under topic", snapName)
 	}
 }

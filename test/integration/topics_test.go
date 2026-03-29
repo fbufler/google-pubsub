@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -110,6 +112,43 @@ func TestTopic_UpdateRetentionDuration(t *testing.T) {
 		t.Errorf("RetentionDuration = %v, want %v", cfg.RetentionDuration, retention)
 	}
 }
+
+func TestTopic_ListSnapshots(t *testing.T) {
+	client := newClient(t)
+	raw := newRawPublisherClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("topic-lsnap"))
+	sub := mustCreateSubscription(t, client, uniqueName("sub-lsnap"), topic)
+
+	snapID := uniqueName("snap-lsnap")
+	if _, err := sub.CreateSnapshot(ctx, snapID); err != nil {
+		t.Fatalf("CreateSnapshot: %v", err)
+	}
+	snapName := "projects/" + projectID() + "/snapshots/" + snapID
+	t.Cleanup(func() { _ = client.Snapshot(snapID).Delete(context.Background()) })
+
+	it := raw.ListTopicSnapshots(ctx, &pubsubpb.ListTopicSnapshotsRequest{
+		Topic: fqTopic(topic),
+	})
+	found := false
+	for {
+		name, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ListTopicSnapshots: %v", err)
+		}
+		if name == snapName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("snapshot %q not listed under topic", snapName)
+	}
+}
+
 
 func TestTopic_ListSubscriptions(t *testing.T) {
 	client := newClient(t)

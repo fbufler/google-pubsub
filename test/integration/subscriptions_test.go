@@ -126,3 +126,86 @@ func TestSubscription_CreateOnNonExistentTopic(t *testing.T) {
 		t.Fatal("expected error creating subscription on non-existent topic, got nil")
 	}
 }
+
+
+func TestSubscription_UpdateRetainAckedMessages(t *testing.T) {
+	client := newClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("sub-retain-topic"))
+	sub := mustCreateSubscription(t, client, uniqueName("sub-retain"), topic)
+
+	cfg, err := sub.Update(ctx, pubsub.SubscriptionConfigToUpdate{
+		RetainAckedMessages: true,
+	})
+	if err != nil {
+		t.Fatalf("Update RetainAckedMessages: %v", err)
+	}
+	if !cfg.RetainAckedMessages {
+		t.Error("RetainAckedMessages = false, want true")
+	}
+}
+
+func TestSubscription_UpdateRetentionDuration(t *testing.T) {
+	client := newClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("sub-ret-topic"))
+	sub := mustCreateSubscription(t, client, uniqueName("sub-ret"), topic)
+
+	want := 48 * time.Hour
+	cfg, err := sub.Update(ctx, pubsub.SubscriptionConfigToUpdate{
+		RetentionDuration: want,
+	})
+	if err != nil {
+		t.Fatalf("Update RetentionDuration: %v", err)
+	}
+	if cfg.RetentionDuration != want {
+		t.Errorf("RetentionDuration = %v, want %v", cfg.RetentionDuration, want)
+	}
+}
+
+func TestSubscription_UpdateDeadLetterPolicy(t *testing.T) {
+	client := newClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("sub-dlq-t"))
+	dlqTopic := mustCreateTopic(t, client, uniqueName("sub-dlq-dlq"))
+	sub := mustCreateSubscription(t, client, uniqueName("sub-dlq"), topic)
+
+	cfg, err := sub.Update(ctx, pubsub.SubscriptionConfigToUpdate{
+		DeadLetterPolicy: &pubsub.DeadLetterPolicy{
+			DeadLetterTopic:     fqTopic(dlqTopic),
+			MaxDeliveryAttempts: 7,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update DeadLetterPolicy: %v", err)
+	}
+	if cfg.DeadLetterPolicy == nil {
+		t.Fatal("DeadLetterPolicy is nil after update")
+	}
+	if cfg.DeadLetterPolicy.MaxDeliveryAttempts != 7 {
+		t.Errorf("MaxDeliveryAttempts = %d, want 7", cfg.DeadLetterPolicy.MaxDeliveryAttempts)
+	}
+}
+
+func TestSubscription_UpdateRetryPolicy(t *testing.T) {
+	client := newClient(t)
+	ctx := context.Background()
+	topic := mustCreateTopic(t, client, uniqueName("sub-rp-topic"))
+	sub := mustCreateSubscription(t, client, uniqueName("sub-rp"), topic)
+
+	cfg, err := sub.Update(ctx, pubsub.SubscriptionConfigToUpdate{
+		RetryPolicy: &pubsub.RetryPolicy{
+			MinimumBackoff: 5 * time.Second,
+			MaximumBackoff: 60 * time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update RetryPolicy: %v", err)
+	}
+	if cfg.RetryPolicy == nil {
+		t.Fatal("RetryPolicy is nil after update")
+	}
+	if cfg.RetryPolicy.MinimumBackoff != 5*time.Second {
+		t.Errorf("MinimumBackoff = %v, want 5s", cfg.RetryPolicy.MinimumBackoff)
+	}
+}
