@@ -10,8 +10,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /emulator ./
 
 FROM scratch
 
-ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
-
 COPY --from=builder /emulator /emulator
 
 EXPOSE 8085

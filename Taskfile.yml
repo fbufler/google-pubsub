@@ -81,7 +81,7 @@ tasks:
             - go build -cover -coverpkg=github.com/fbufler/google-pubsub/internal/...,github.com/fbufler/google-pubsub/cmd/... -o bin/emulator-cov ./cmd/server
             - |
                 rm -rf coverdata && mkdir -p coverdata
-                GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn \
+                GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 \
                   ./bin/emulator-cov &
                 COV_PID=$!
                 for i in $(seq 1 30); do

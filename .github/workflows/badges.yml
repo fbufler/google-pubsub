@@ -79,7 +79,7 @@ jobs:
               id: coverage
               run: |
                   mkdir -p coverdata
-                  GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn \
+                  GOCOVERDIR=./coverdata LISTEN_ADDR=:8087 \
                     ./bin/emulator-cov &
                   COV_PID=$!
 

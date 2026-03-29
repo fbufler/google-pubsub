@@ -16,11 +16,6 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
-	pubsubpb "github.com/fbufler/google-pubsub/gen/google/pubsub/v1"
 	"github.com/fbufler/google-pubsub/gen/google/pubsub/v1/pubsubpbconnect"
 	"github.com/fbufler/google-pubsub/internal/api/handler"
 	"github.com/fbufler/google-pubsub/internal/core/storage/memory"
@@ -112,26 +107,6 @@ func main() {
 	)
 	mux.Handle(grpcreflect.NewHandlerV1(reflector))
 	mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
-
-	// --- gRPC-Gateway REST proxy ---
-	gwmux := runtime.NewServeMux()
-
-	dialAddr := cfg.ListenAddr
-	if len(dialAddr) > 0 && dialAddr[0] == ':' {
-		dialAddr = "127.0.0.1" + dialAddr
-	}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-
-	if err := pubsubpb.RegisterPublisherHandlerFromEndpoint(ctx, gwmux, dialAddr, opts); err != nil {
-		slog.Error("failed to register publisher gateway", "err", err)
-		os.Exit(1)
-	}
-	if err := pubsubpb.RegisterSubscriberHandlerFromEndpoint(ctx, gwmux, dialAddr, opts); err != nil {
-		slog.Error("failed to register subscriber gateway", "err", err)
-		os.Exit(1)
-	}
-
-	mux.Handle("/", gwmux)
 
 	// --- Start server ---
 	srv := &http.Server{
